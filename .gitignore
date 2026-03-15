@@ -1,0 +1,20 @@
+# Credentials — NEVER commit these
+.env
+*.pem
+*.key
+
+# Bot runtime files (stay on server)
+bot_state.json
+bot_log.jsonl
+bot_output.log
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Outputs
+*.png
+trade_log.csv
