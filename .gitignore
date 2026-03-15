@@ -1,5 +1,6 @@
 # Credentials — NEVER commit these
 .env
+.env.local
 *.pem
 *.key
 
