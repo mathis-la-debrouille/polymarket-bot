@@ -467,6 +467,8 @@ def run_scan(client: Optional["ClobClient"], state: BotState, paper: bool) -> No
 # ENTRY POINT
 # ──────────────────────────────────────────────────────────────────
 def main():
+    global MAX_STAKE_USD, EV_THRESHOLD
+
     parser = argparse.ArgumentParser(description="Polymarket Live Trading Bot")
     parser.add_argument("--live",       action="store_true",              help="Enable real order submission (default: paper mode)")
     parser.add_argument("--once",       action="store_true",              help="Run one scan then exit")
@@ -503,7 +505,6 @@ def main():
         log.info("=" * 55)
 
     # Override config from args
-    global MAX_STAKE_USD, EV_THRESHOLD
     MAX_STAKE_USD = args.max_stake
     EV_THRESHOLD  = args.ev_min
 
