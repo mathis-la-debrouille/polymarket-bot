@@ -104,6 +104,14 @@ async def chart_pnl():
         raise HTTPException(502, str(e))
 
 
+@app.get("/api/balance/real")
+async def real_balance():
+    try:
+        return await remote_get("/balance/real")
+    except Exception as e:
+        raise HTTPException(502, str(e))
+
+
 @app.get("/api/logs")
 async def logs():
     try:

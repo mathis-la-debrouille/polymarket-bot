@@ -40,6 +40,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import numpy as np
+import requests
 
 try:
     from dotenv import load_dotenv
@@ -284,6 +285,66 @@ def audit_log(n: int = Query(default=50, le=500, description="Number of log entr
     return {
         "count":   len(entries),
         "entries": entries,
+    }
+
+
+@app.get("/balance/real", tags=["Bot"], dependencies=[Depends(check_auth)])
+def real_balance():
+    """
+    Query the actual USDC balance from two sources:
+      • wallet_usdc  — undeposited USDC sitting in the EOA wallet (Polygon on-chain)
+      • clob_usdc    — USDC deposited into Polymarket and available to trade (CLOB)
+    The tracked_bankroll is what the bot computed locally (may drift from reality).
+    """
+    pk = os.environ.get("PRIVATE_KEY", "")
+    if not pk:
+        return {"error": "PRIVATE_KEY not set in server .env"}
+
+    # ── 1. Derive wallet address ────────────────────────────────────
+    wallet_address = None
+    try:
+        from eth_account import Account
+        wallet_address = Account.from_key(pk).address
+    except Exception as e:
+        return {"error": f"Could not derive wallet address: {e}"}
+
+    # ── 2. On-chain wallet USDC balance (Polygon RPC) ───────────────
+    wallet_usdc = None
+    try:
+        USDC_POLYGON = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"  # USDC.e on Polygon
+        padded = wallet_address[2:].lower().zfill(64)
+        data   = "0x70a08231" + padded  # balanceOf(address)
+        resp   = requests.post("https://polygon-rpc.com", json={
+            "jsonrpc": "2.0", "method": "eth_call",
+            "params": [{"to": USDC_POLYGON, "data": data}, "latest"], "id": 1,
+        }, timeout=8)
+        raw = resp.json().get("result", "0x0")
+        wallet_usdc = int(raw, 16) / 1_000_000  # USDC has 6 decimals
+    except Exception as e:
+        wallet_usdc = None
+
+    # ── 3. CLOB balance (deposited into Polymarket) ─────────────────
+    clob_usdc = None
+    try:
+        from py_clob_client.client import ClobClient
+        client = ClobClient("https://clob.polymarket.com", key=pk, chain_id=137)
+        creds  = client.create_or_derive_api_creds()
+        client.set_api_creds(creds)
+        bal = client.get_balance_allowance({"asset_type": "COLLATERAL", "signature_type": "EOA"})
+        clob_usdc = float(bal.get("balance", 0)) / 1_000_000
+    except Exception:
+        clob_usdc = None
+
+    tracked = read_state().get("current_bankroll", 0)
+    total   = (wallet_usdc or 0) + (clob_usdc or 0)
+
+    return {
+        "wallet_address":   wallet_address,
+        "wallet_usdc":      round(wallet_usdc, 4) if wallet_usdc is not None else None,
+        "clob_usdc":        round(clob_usdc,   4) if clob_usdc   is not None else None,
+        "total_real_usdc":  round(total, 4),
+        "tracked_bankroll": round(tracked, 4),
+        "drift":            round(total - tracked, 4),
     }
 
 

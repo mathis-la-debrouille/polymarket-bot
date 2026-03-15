@@ -316,6 +316,27 @@ def check_kill_switch(state: BotState) -> bool:
 
 
 # ──────────────────────────────────────────────────────────────────
+# REAL BALANCE SYNC  (live mode only)
+# ──────────────────────────────────────────────────────────────────
+def sync_real_balance(client: "ClobClient", state: BotState) -> None:
+    """
+    Pull the actual USDC balance from the Polymarket CLOB and update
+    state.current_bankroll so the bot works with real numbers, not
+    the locally-computed estimate.
+    """
+    try:
+        bal  = client.get_balance_allowance({"asset_type": "COLLATERAL", "signature_type": "EOA"})
+        real = float(bal.get("balance", 0)) / 1_000_000
+        old  = state.current_bankroll
+        state.current_bankroll = real
+        state.peak_bankroll    = max(state.peak_bankroll, real)
+        log.info(f"  [✓] Balance synced from CLOB: ${real:.4f}  (was tracked ${old:.4f})")
+        audit("balance_sync", {"real": real, "was_tracked": old})
+    except Exception as e:
+        log.debug(f"  Balance sync skipped ({e}) — using tracked value")
+
+
+# ──────────────────────────────────────────────────────────────────
 # MAIN SCAN LOOP
 # ──────────────────────────────────────────────────────────────────
 def run_scan(client: Optional["ClobClient"], state: BotState, paper: bool) -> None:
@@ -324,6 +345,10 @@ def run_scan(client: Optional["ClobClient"], state: BotState, paper: bool) -> No
     log.info(f"Scan started | bankroll=${state.current_bankroll:.2f} | "
              f"{'PAPER' if paper else '🔴 LIVE'}")
     log.info(f"{'─'*55}")
+
+    # In live mode, always start with the real CLOB balance
+    if client is not None:
+        sync_real_balance(client, state)
 
     if check_kill_switch(state):
         return

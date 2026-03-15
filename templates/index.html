@@ -100,9 +100,22 @@
   <div class="row g-3 mb-4">
     <div class="col-6 col-xl-3">
       <div class="card p-3 h-100">
-        <div class="metric-label">Bankroll</div>
+        <div class="d-flex align-items-center justify-content-between">
+          <div class="metric-label">Bankroll</div>
+          <button onclick="verifyBalance()" id="verify-btn" title="Fetch real balance from Polymarket"
+            style="background:none;border:1px solid var(--border);border-radius:4px;color:var(--muted);font-size:.68rem;padding:1px 7px;cursor:pointer;line-height:1.6;">
+            Verify
+          </button>
+        </div>
         <div class="metric-val" id="m-bankroll">—</div>
         <div class="metric-sub" id="m-start">Starting: —</div>
+        <!-- Real balance row (hidden until verified) -->
+        <div id="real-bal-row" style="display:none;margin-top:.5rem;padding-top:.5rem;border-top:1px solid var(--border);">
+          <div style="font-size:.68rem;color:var(--muted);margin-bottom:.2rem;">Real (Polymarket)</div>
+          <div style="font-size:.85rem;font-weight:600;" id="real-bal-val">—</div>
+          <div style="font-size:.68rem;margin-top:.15rem;" id="real-bal-detail"></div>
+          <div style="font-size:.68rem;margin-top:.15rem;" id="real-bal-drift"></div>
+        </div>
       </div>
     </div>
     <div class="col-6 col-xl-3">
@@ -390,6 +403,48 @@ async function stopBot() {
 function setCtrlMsg(msg, type) {
   const colors = { success: 'var(--green)', warning: 'var(--yellow)', danger: 'var(--red)' };
   $('ctrl-msg').innerHTML = `<span style="color:${colors[type]??'inherit'}">${msg}</span>`;
+}
+
+// ── Real balance verify ───────────────────────────────────────────
+async function verifyBalance() {
+  const btn = $('verify-btn');
+  btn.textContent = '…';
+  btn.disabled = true;
+
+  try {
+    const d = await fetch('/api/balance/real').then(r => r.json());
+
+    if (d.error) {
+      $('real-bal-row').style.display = 'block';
+      $('real-bal-val').innerHTML = `<span style="color:var(--red)">Error</span>`;
+      $('real-bal-detail').textContent = d.error;
+      return;
+    }
+
+    $('real-bal-row').style.display = 'block';
+    $('real-bal-val').textContent = '$' + (d.total_real_usdc ?? '—');
+
+    const parts = [];
+    if (d.clob_usdc   != null) parts.push(`CLOB: $${d.clob_usdc}`);
+    if (d.wallet_usdc != null) parts.push(`Wallet: $${d.wallet_usdc}`);
+    $('real-bal-detail').textContent = parts.join('  ·  ');
+
+    const drift = d.drift ?? 0;
+    const absDrift = Math.abs(drift);
+    if (absDrift < 0.01) {
+      $('real-bal-drift').innerHTML = `<span style="color:var(--green)">✓ Matches tracked</span>`;
+    } else {
+      const sign = drift > 0 ? '+' : '';
+      $('real-bal-drift').innerHTML =
+        `<span style="color:${drift > 0 ? 'var(--green)' : 'var(--red)'}">` +
+        `Drift: ${sign}$${drift.toFixed(4)}</span>`;
+    }
+  } catch(e) {
+    $('real-bal-detail').textContent = String(e);
+  } finally {
+    btn.textContent = 'Verify';
+    btn.disabled = false;
+  }
 }
 
 // ── Init ──────────────────────────────────────────────────────────
