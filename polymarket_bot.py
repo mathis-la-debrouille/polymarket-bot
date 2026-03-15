@@ -459,6 +459,8 @@ def run_scan(client: Optional["ClobClient"], state: BotState, paper: bool) -> No
     if signals_found == 0:
         log.info("  No EV signals found this scan.")
 
+    save_state(state)
+
     log.info(f"\n  Bankroll: ${state.current_bankroll:.2f} | "
              f"Trades: {state.total_trades} | Active positions: {len(state.active_positions)}")
 
