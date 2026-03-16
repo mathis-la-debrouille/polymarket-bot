@@ -23,11 +23,11 @@ from fastapi.templating import Jinja2Templates
 load_dotenv()
 
 # ── Config ──────────────────────────────────────────────────────────
-SSH_HOST        = os.environ.get("SSH_HOST",     "31.97.93.12")
+SSH_HOST        = os.environ.get("SSH_HOST",     "YOUR_SERVER_IP")
 SSH_USER        = os.environ.get("SSH_USER",     "root")
-SSH_PASSWORD    = os.environ.get("SSH_PASSWORD", "atJH;3j5qsIzw2p'")
-REMOTE_API      = os.environ.get("REMOTE_API",   "http://31.97.93.12:8000")
-API_TOKEN       = os.environ.get("API_TOKEN",    "ebc8cae89f6a3773666d3633326da5b5321a280998811926")
+SSH_PASSWORD    = os.environ.get("SSH_PASSWORD", "")
+REMOTE_API      = os.environ.get("REMOTE_API",   "http://YOUR_SERVER_IP:8000")
+API_TOKEN       = os.environ.get("API_TOKEN",    "")
 DASHBOARD_PORT  = int(os.environ.get("DASHBOARD_PORT", 3000))
 
 # ── SSH helper ──────────────────────────────────────────────────────
