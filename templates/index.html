@@ -142,8 +142,8 @@
       <div class="card p-3 h-100">
         <div class="metric-label">Bankroll</div>
         <!-- FIX 2: hero class for larger prominent number -->
-        <div class="metric-val hero" id="m-bankroll">$20.00</div>
-        <div class="metric-sub" id="m-start">Starting: $20.00</div>
+        <div class="metric-val hero" id="m-bankroll">—</div>
+        <div class="metric-sub" id="m-start">Starting: —</div>
         <div id="real-bal-row" style="display:none; margin-top:.5rem; padding-top:.5rem; border-top:1px solid var(--border);">
           <div id="real-bal-val" style="font-size:.75rem;"></div>
           <div id="real-bal-detail" style="font-size:.68rem; color:var(--muted); margin-top:.1rem;"></div>
@@ -153,22 +153,22 @@
     <div class="col-6 col-xl-3">
       <div class="card p-3 h-100">
         <div class="metric-label">P&amp;L</div>
-        <div class="metric-val" id="m-pnl"><span class="pos">+$0.00</span></div>
-        <div class="metric-sub" id="m-return" style="color:var(--muted)">Return: <span class="pos">+0.00%</span></div>
+        <div class="metric-val" id="m-pnl">—</div>
+        <div class="metric-sub" id="m-return" style="color:var(--muted)">Return: —</div>
       </div>
     </div>
     <div class="col-6 col-xl-3">
       <div class="card p-3 h-100">
         <div class="metric-label">Trades</div>
-        <div class="metric-val" id="m-trades">0</div>
-        <div class="metric-sub" id="m-positions" style="color:var(--muted)">Open: 0</div>
+        <div class="metric-val" id="m-trades">—</div>
+        <div class="metric-sub" id="m-positions" style="color:var(--muted)">Open: —</div>
       </div>
     </div>
     <div class="col-6 col-xl-3">
       <div class="card p-3 h-100">
         <div class="metric-label">Drawdown</div>
-        <div class="metric-val" id="m-dd">0.0%</div>
-        <div class="metric-sub" id="m-peak" style="color:var(--muted)">Peak: $20.00</div>
+        <div class="metric-val" id="m-dd">—</div>
+        <div class="metric-sub" id="m-peak" style="color:var(--muted)">Peak: —</div>
       </div>
     </div>
   </div>
@@ -308,8 +308,8 @@ const pnlChart = new Chart(document.getElementById('pnl-chart').getContext('2d')
 
 // ── Helpers ────────────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
-const fmt  = (v, p=2) => v == null ? '$0.00' : '$' + parseFloat(v).toFixed(p);
-const pct  = v => v == null ? '0.00%' : parseFloat(v).toFixed(2) + '%';
+const fmt  = (v, p=2) => v == null ? '—' : '$' + parseFloat(v).toFixed(p);
+const pct  = v => v == null ? '—' : parseFloat(v).toFixed(2) + '%';
 const cls  = v => parseFloat(v) >= 0 ? 'pos' : 'neg';
 const sign = v => parseFloat(v) >= 0 ? '+' : '';
 const timeFmt = iso => iso ? new Date(iso).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) : '—';
