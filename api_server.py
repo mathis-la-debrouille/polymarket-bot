@@ -158,17 +158,18 @@ def compute_metrics(state: Dict, log_entries: List[Dict]) -> Dict:
     kill_triggered = any(e.get("event") == "kill_switch" for e in log_entries)
 
     return {
-        "starting_bankroll": starting,
-        "current_bankroll":  round(current, 2),
-        "peak_bankroll":     round(peak, 2),
-        "total_pnl":         round(total_pnl, 2),
-        "return_pct":        round(return_pct, 2),
-        "drawdown_pct":      round(drawdown_pct, 2),
-        "total_trades":      total_trades,
-        "avg_ev":            round(avg_ev, 4),
-        "avg_stake_usd":     round(avg_stake, 2),
+        "starting_bankroll":    starting,
+        "current_bankroll":     round(current, 2),
+        "peak_bankroll":        round(peak, 2),
+        "total_pnl":            round(total_pnl, 2),
+        "return_pct":           round(return_pct, 2),
+        "drawdown_pct":         round(drawdown_pct, 2),
+        "total_trades":         total_trades,
+        "active_positions_count": len(state.get("active_positions", {})),
+        "avg_ev":               round(avg_ev, 4),
+        "avg_stake_usd":        round(avg_stake, 2),
         "kill_switch_triggered": kill_triggered,
-        "uptime":            uptime_str,
+        "uptime":               uptime_str,
     }
 
 

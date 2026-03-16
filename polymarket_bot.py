@@ -394,11 +394,13 @@ def run_scan(client: Optional["ClobClient"], state: BotState, paper: bool) -> No
         condition_id = raw.get("conditionId", "")
         history = fetch_price_history(condition_id)
         if len(history) < 10:
+            log.info(f"  {question[:48]:48s}  ✗ not enough price history ({len(history)} pts)")
             continue
 
         current_price = history[-1]["p"]
         if not (0.05 < current_price < 0.95):
-            continue  # skip near-resolved
+            log.info(f"  {question[:48]:48s}  ✗ near-resolved (price={current_price:.2f})")
+            continue
 
         # Model probability
         model_p = model_probability(history)
@@ -408,6 +410,16 @@ def run_scan(client: Optional["ClobClient"], state: BotState, paper: bool) -> No
         # Evaluate both YES and NO
         ev_yes = compute_ev(model_p,       current_price)
         ev_no  = compute_ev(1 - model_p,   1 - current_price)
+        best_ev = max(ev_yes, ev_no)
+
+        # Always log each market so you can see the bot's reasoning
+        side_label = "YES" if ev_yes >= ev_no else "NO"
+        verdict = "✓ EDGE" if best_ev >= EV_THRESHOLD else f"✗ EV too low (need {EV_THRESHOLD:.0%})"
+        log.info(
+            f"  {question[:48]:48s}  "
+            f"price={current_price:.2f}  model={model_p:.2f}  "
+            f"EV={best_ev:+.3f}  {verdict}"
+        )
 
         if ev_yes >= ev_no and ev_yes >= EV_THRESHOLD:
             bet_side  = "YES"
