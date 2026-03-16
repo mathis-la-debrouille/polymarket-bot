@@ -318,23 +318,33 @@ def check_kill_switch(state: BotState) -> bool:
 # ──────────────────────────────────────────────────────────────────
 # REAL BALANCE SYNC  (live mode only)
 # ──────────────────────────────────────────────────────────────────
-def sync_real_balance(client: "ClobClient", state: BotState) -> None:
+def sync_real_balance(state: BotState, clob_client: Optional["ClobClient"] = None) -> None:
     """
     Pull the actual USDC balance from the Polymarket CLOB and update
-    state.current_bankroll so the bot works with real numbers, not
-    the locally-computed estimate.
+    state.current_bankroll. Works in both live mode (uses existing client)
+    and paper mode (creates a read-only client just for the balance check).
     """
     try:
         from py_clob_client.clob_types import BalanceAllowanceParams, AssetType
-        # signature_type=1 = Proxy Wallet (Polymarket default for new accounts)
-        bal  = client.get_balance_allowance(BalanceAllowanceParams(
+        if clob_client is None:
+            # Paper mode: create a temporary client just to read balance
+            pk = os.environ.get("PRIVATE_KEY", "")
+            if not pk:
+                return
+            clob_client = ClobClient(CLOB_HOST, key=pk, chain_id=CHAIN_ID, signature_type=1)
+            creds = clob_client.create_or_derive_api_creds()
+            clob_client.set_api_creds(creds)
+
+        bal  = clob_client.get_balance_allowance(BalanceAllowanceParams(
             asset_type=AssetType.COLLATERAL, signature_type=1
         ))
         real = float(bal.get("balance", 0)) / 1_000_000
+        if real <= 0:
+            return
         old  = state.current_bankroll
         state.current_bankroll = real
         state.peak_bankroll    = max(state.peak_bankroll, real)
-        log.info(f"  [✓] Balance synced from CLOB: ${real:.4f}  (was tracked ${old:.4f})")
+        log.info(f"  [✓] Balance synced from CLOB: ${real:.4f}  (was ${old:.4f})")
         audit("balance_sync", {"real": real, "was_tracked": old})
     except Exception as e:
         log.debug(f"  Balance sync skipped ({e}) — using tracked value")
@@ -350,9 +360,8 @@ def run_scan(client: Optional["ClobClient"], state: BotState, paper: bool) -> No
              f"{'PAPER' if paper else '🔴 LIVE'}")
     log.info(f"{'─'*55}")
 
-    # In live mode, always start with the real CLOB balance
-    if client is not None:
-        sync_real_balance(client, state)
+    # Always sync real balance (paper or live) — keeps state accurate
+    sync_real_balance(state, clob_client=client)
 
     if check_kill_switch(state):
         return
