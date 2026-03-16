@@ -275,7 +275,7 @@ function timeFmt(iso) {
 async function loadAll() {
   $('spinner').style.display = 'inline-block';
   try {
-    await Promise.all([loadMetrics(), loadTrades(), loadPositions(), loadChart(), loadSvcStatus()]);
+    await Promise.all([loadMetrics(), loadTrades(), loadPositions(), loadChart(), loadSvcStatus(), verifyBalance()]);
     $('last-upd').textContent = 'Updated ' + new Date().toLocaleTimeString();
   } catch(e) { console.error(e); }
   $('spinner').style.display = 'none';
@@ -405,45 +405,28 @@ function setCtrlMsg(msg, type) {
   $('ctrl-msg').innerHTML = `<span style="color:${colors[type]??'inherit'}">${msg}</span>`;
 }
 
-// ── Real balance verify ───────────────────────────────────────────
+// ── Real balance verify (auto-called on every refresh) ───────────
 async function verifyBalance() {
-  const btn = $('verify-btn');
-  btn.textContent = '…';
-  btn.disabled = true;
-
   try {
     const d = await fetch('/api/balance/real').then(r => r.json());
+    if (d.error || d.total_real_usdc == null) return;
 
-    if (d.error) {
-      $('real-bal-row').style.display = 'block';
-      $('real-bal-val').innerHTML = `<span style="color:var(--red)">Error</span>`;
-      $('real-bal-detail').textContent = d.error;
-      return;
-    }
+    // Override the main bankroll display with the real value
+    $('m-bankroll').textContent = '$' + parseFloat(d.total_real_usdc).toFixed(2);
 
+    // Show breakdown in the sub-row
     $('real-bal-row').style.display = 'block';
-    $('real-bal-val').textContent = '$' + (d.total_real_usdc ?? '—');
-
     const parts = [];
-    if (d.clob_usdc   != null) parts.push(`CLOB: $${d.clob_usdc}`);
-    if (d.wallet_usdc != null) parts.push(`Wallet: $${d.wallet_usdc}`);
+    if (d.clob_usdc   != null) parts.push(`CLOB $${d.clob_usdc}`);
+    if (d.wallet_usdc != null && d.wallet_usdc > 0) parts.push(`Wallet $${d.wallet_usdc}`);
+    $('real-bal-val').innerHTML = `<span style="color:var(--green)">✓ Verified on-chain</span>`;
     $('real-bal-detail').textContent = parts.join('  ·  ');
+    $('real-bal-drift').textContent = '';
 
-    const drift = d.drift ?? 0;
-    const absDrift = Math.abs(drift);
-    if (absDrift < 0.01) {
-      $('real-bal-drift').innerHTML = `<span style="color:var(--green)">✓ Matches tracked</span>`;
-    } else {
-      const sign = drift > 0 ? '+' : '';
-      $('real-bal-drift').innerHTML =
-        `<span style="color:${drift > 0 ? 'var(--green)' : 'var(--red)'}">` +
-        `Drift: ${sign}$${drift.toFixed(4)}</span>`;
-    }
+    // Hide the verify button since it runs automatically
+    $('verify-btn').style.display = 'none';
   } catch(e) {
-    $('real-bal-detail').textContent = String(e);
-  } finally {
-    btn.textContent = 'Verify';
-    btn.disabled = false;
+    // silently fail — tracked value stays shown
   }
 }
 
