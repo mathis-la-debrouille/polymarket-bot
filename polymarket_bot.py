@@ -178,14 +178,17 @@ def fetch_live_markets(limit: int = MAX_MARKETS_SCAN) -> List[Dict]:
         return []
 
 
-def fetch_price_history(condition_id: str, fidelity: int = 60) -> List[Dict]:
-    """Fetch recent price history for a market's YES token."""
-    if not condition_id:
+def fetch_price_history(token_id: str, fidelity: int = 10) -> List[Dict]:
+    """Fetch recent price history for a market token (YES or NO).
+    Uses the token_id (not conditionId) as required by the CLOB prices-history endpoint.
+    fidelity=10 means 10-minute intervals — enough data points for MACD.
+    """
+    if not token_id:
         return []
     try:
         resp = requests.get(
             f"{CLOB_HOST}/prices-history",
-            params={"market": condition_id, "fidelity": fidelity},
+            params={"market": token_id, "fidelity": fidelity},
             timeout=10,
         )
         resp.raise_for_status()
@@ -390,9 +393,9 @@ def run_scan(client: Optional["ClobClient"], state: BotState, paper: bool) -> No
         except Exception:
             yes_token, no_token = None, None
 
-        # Current midprice
-        condition_id = raw.get("conditionId", "")
-        history = fetch_price_history(condition_id)
+        # Fetch price history using the YES token_id (CLOB API requires token_id, not conditionId)
+        yes_token_id = yes_token.get("token_id", "") if yes_token else ""
+        history = fetch_price_history(yes_token_id)
         if len(history) < 10:
             log.info(f"  {question[:48]:48s}  ✗ not enough price history ({len(history)} pts)")
             continue
