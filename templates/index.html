@@ -48,17 +48,19 @@
     .badge-live  { background: rgba(248,81,73,.12);  color: var(--red)    !important; border: 1px solid rgba(248,81,73,.4);  font-size: .7rem; padding: 2px 8px; border-radius: 4px; }
 
     /* ── Metric cards ── */
-    .metric-val   { font-size: 1.9rem; font-weight: 700; line-height: 1.1; color: var(--text); }
-    .metric-label { font-size: .7rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin-bottom: .35rem; }
-    .metric-sub   { font-size: .78rem; color: var(--muted); margin-top: .3rem; }
+    /* FIX 2: bankroll hero is bigger and always white */
+    .metric-val         { font-size: 1.9rem; font-weight: 700; line-height: 1.1; color: var(--text) !important; }
+    .metric-val.hero    { font-size: 2.2rem; }
+    .metric-label       { font-size: .7rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin-bottom: .35rem; }
+    .metric-sub         { font-size: .78rem; color: var(--muted); margin-top: .3rem; }
 
     /* ── Buttons ── */
-    .btn-go   { background: var(--green); border: none; color: #000 !important; font-weight: 600; font-size: .85rem; padding: .45rem 1.2rem; border-radius: 6px; width: 100%; cursor: pointer; }
-    .btn-go:hover { background: #52d56b; }
-    .btn-go:disabled { opacity: .45; cursor: not-allowed; }
-    .btn-halt { background: transparent; border: 1px solid var(--red); color: var(--red) !important; font-weight: 600; font-size: .85rem; padding: .45rem 1.2rem; border-radius: 6px; width: 100%; cursor: pointer; }
-    .btn-halt:hover { background: rgba(248,81,73,.12); }
-    .btn-halt:disabled { opacity: .45; cursor: not-allowed; }
+    .btn-go   { background: var(--green); border: none; color: #000 !important; font-weight: 600; font-size: .85rem; padding: .45rem 1.2rem; border-radius: 6px; width: 100%; cursor: pointer; transition: opacity .15s; }
+    .btn-go:hover:not(:disabled) { background: #52d56b; }
+    .btn-go:disabled { opacity: .35; cursor: not-allowed; background: var(--green); }
+    .btn-halt { background: transparent; border: 1px solid var(--red); color: var(--red) !important; font-weight: 600; font-size: .85rem; padding: .45rem 1.2rem; border-radius: 6px; width: 100%; cursor: pointer; transition: opacity .15s; }
+    .btn-halt:hover:not(:disabled) { background: rgba(248,81,73,.12); }
+    .btn-halt:disabled { opacity: .35; cursor: not-allowed; }
 
     /* ── Select ── */
     select.form-select { background-color: var(--bg) !important; color: var(--text) !important; border-color: var(--border) !important; font-size: .85rem; }
@@ -70,12 +72,37 @@
     .c-muted { color: var(--muted); }
 
     /* ── Log panel ── */
-    .log-panel { background: #070b10; font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace; font-size: .71rem; height: 320px; overflow-y: auto; padding: 12px 14px; border-radius: 8px; border: 1px solid var(--border); white-space: pre; line-height: 1.65; }
+    /* FIX 5: pre-wrap instead of pre so long lines wrap */
+    .log-panel {
+      background: #070b10;
+      font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+      font-size: .71rem;
+      height: 320px;
+      overflow-y: auto;
+      padding: 12px 14px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      white-space: pre-wrap;
+      overflow-wrap: break-word;
+      word-break: break-all;
+      line-height: 1.65;
+    }
     .log-panel .l-info    { color: #7ee787; }
     .log-panel .l-warn    { color: var(--yellow); }
     .log-panel .l-edge    { color: #fff; font-weight: 600; }
     .log-panel .l-skip    { color: #556270; }
     .log-panel .l-signal  { color: #ffa657; font-weight: 700; }
+
+    /* FIX 6: scan countdown */
+    .scan-countdown {
+      margin-top: .6rem;
+      font-size: .75rem;
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      gap: .4rem;
+    }
+    .scan-countdown .cd-val { color: var(--blue); font-variant-numeric: tabular-nums; font-weight: 600; }
 
     /* ── Scan table ── */
     .scan-row-pass td { color: var(--green) !important; }
@@ -101,7 +128,7 @@
   <span id="svc-badge" class="badge rounded-pill px-3 py-1" style="font-size:.72rem;">Checking…</span>
   <span id="mode-badge" class="badge-paper">Paper</span>
   <div class="meta">
-    <span id="last-upd" style="color:var(--muted)">—</span>
+    <span id="last-upd" style="color:var(--muted)">Loading…</span>
     <span id="spinner" style="display:none" class="spin"></span>
   </div>
 </div>
@@ -109,12 +136,14 @@
 <div class="container-fluid px-4 py-4" style="max-width:1400px;">
 
   <!-- ── Metric cards ── -->
+  <!-- FIX 1: default zero values instead of "—" -->
   <div class="row g-3 mb-4">
     <div class="col-6 col-xl-3">
       <div class="card p-3 h-100">
         <div class="metric-label">Bankroll</div>
-        <div class="metric-val" id="m-bankroll">—</div>
-        <div class="metric-sub" id="m-start">Starting: —</div>
+        <!-- FIX 2: hero class for larger prominent number -->
+        <div class="metric-val hero" id="m-bankroll">$20.00</div>
+        <div class="metric-sub" id="m-start">Starting: $20.00</div>
         <div id="real-bal-row" style="display:none; margin-top:.5rem; padding-top:.5rem; border-top:1px solid var(--border);">
           <div id="real-bal-val" style="font-size:.75rem;"></div>
           <div id="real-bal-detail" style="font-size:.68rem; color:var(--muted); margin-top:.1rem;"></div>
@@ -124,22 +153,22 @@
     <div class="col-6 col-xl-3">
       <div class="card p-3 h-100">
         <div class="metric-label">P&amp;L</div>
-        <div class="metric-val" id="m-pnl">—</div>
-        <div class="metric-sub" id="m-return" style="color:var(--muted)">Return: —</div>
+        <div class="metric-val" id="m-pnl"><span class="pos">+$0.00</span></div>
+        <div class="metric-sub" id="m-return" style="color:var(--muted)">Return: <span class="pos">+0.00%</span></div>
       </div>
     </div>
     <div class="col-6 col-xl-3">
       <div class="card p-3 h-100">
         <div class="metric-label">Trades</div>
-        <div class="metric-val" id="m-trades">—</div>
-        <div class="metric-sub" id="m-positions" style="color:var(--muted)">Positions: —</div>
+        <div class="metric-val" id="m-trades">0</div>
+        <div class="metric-sub" id="m-positions" style="color:var(--muted)">Open: 0</div>
       </div>
     </div>
     <div class="col-6 col-xl-3">
       <div class="card p-3 h-100">
         <div class="metric-label">Drawdown</div>
-        <div class="metric-val" id="m-dd">—</div>
-        <div class="metric-sub" id="m-peak" style="color:var(--muted)">Peak: —</div>
+        <div class="metric-val" id="m-dd">0.0%</div>
+        <div class="metric-sub" id="m-peak" style="color:var(--muted)">Peak: $20.00</div>
       </div>
     </div>
   </div>
@@ -164,9 +193,10 @@
           <option value="live">Live — real trades ⚠️</option>
         </select>
 
+        <!-- FIX 4: buttons start disabled until service status loads -->
         <div style="display:flex; flex-direction:column; gap:.5rem;">
-          <button class="btn-go" id="btn-start" onclick="startBot()">▶ Start</button>
-          <button class="btn-halt" id="btn-stop" onclick="stopBot()">■ Stop</button>
+          <button class="btn-go"  id="btn-start" onclick="startBot()" disabled>▶ Start</button>
+          <button class="btn-halt" id="btn-stop"  onclick="stopBot()"  disabled>■ Stop</button>
         </div>
 
         <div id="ctrl-msg" class="mt-3" style="font-size:.8rem; min-height:1.4em;"></div>
@@ -174,14 +204,15 @@
     </div>
 
     <!-- Active positions -->
+    <!-- FIX 7: added CLOSES column -->
     <div class="col-12 col-md-8 col-lg-9">
       <div class="card p-4 h-100">
         <div class="section-title">Active Positions</div>
         <div class="scroll-table">
           <table class="table">
-            <thead><tr><th>Market</th><th>Side</th><th>Entry</th><th>Stake</th><th>EV</th><th>Mode</th></tr></thead>
+            <thead><tr><th>Market</th><th>Side</th><th>Entry</th><th>Stake</th><th>EV</th><th>Closes</th><th>Mode</th></tr></thead>
             <tbody id="pos-body">
-              <tr><td colspan="6" class="text-center py-3" style="color:var(--muted)!important">No open positions</td></tr>
+              <tr><td colspan="7" class="text-center py-3" style="color:var(--muted)!important">No open positions</td></tr>
             </tbody>
           </table>
         </div>
@@ -221,10 +252,15 @@
     <div class="col-lg-6">
       <div class="card p-4">
         <div class="d-flex align-items-center justify-content-between mb-3">
-          <div class="section-title mb-0">Bot Logs <span id="log-hint" style="font-size:.68rem; color:var(--muted); text-transform:none; letter-spacing:0; font-weight:400;">— shows why each market is skipped</span></div>
+          <div class="section-title mb-0">Bot Logs <span id="log-hint" style="font-size:.68rem; color:var(--muted); text-transform:none; letter-spacing:0; font-weight:400;">— why each market is skipped</span></div>
           <button onclick="loadLogs()" style="background:none;border:none;color:var(--muted);font-size:.75rem;cursor:pointer;padding:0;">↺ Refresh</button>
         </div>
         <div class="log-panel" id="log-panel"><span class="l-info">Loading…</span></div>
+        <!-- FIX 6: scan countdown -->
+        <div class="scan-countdown">
+          <span>Next scan in</span>
+          <span class="cd-val" id="cd-display">—</span>
+        </div>
       </div>
     </div>
 
@@ -233,15 +269,36 @@
 
 <script>
 // ── Chart ──────────────────────────────────────────────────────────
+// FIX 3: empty state placeholder shown until real data arrives
 const pnlChart = new Chart(document.getElementById('pnl-chart').getContext('2d'), {
   type: 'line',
-  data: { labels: [], datasets: [{ label: 'P&L (USD)', data: [],
-    borderColor: '#3fb950', backgroundColor: 'rgba(63,185,80,.07)',
-    borderWidth: 2, pointRadius: 2, fill: true, tension: 0.4 }] },
+  data: {
+    labels: ['Now'],
+    datasets: [{
+      label: 'P&L (USD)',
+      data: [0],
+      borderColor: '#3fb950',
+      backgroundColor: 'rgba(63,185,80,.07)',
+      borderWidth: 2,
+      pointRadius: 2,
+      fill: true,
+      tension: 0.4,
+    }]
+  },
   options: {
     responsive: true,
-    plugins: { legend: { display: false },
-      tooltip: { callbacks: { label: ctx => ' $' + ctx.parsed.y.toFixed(2) } } },
+    plugins: {
+      legend: { display: false },
+      tooltip: { callbacks: { label: ctx => ' $' + ctx.parsed.y.toFixed(2) } },
+      // FIX 3: subtitle shown while no trades
+      subtitle: {
+        display: true,
+        text: 'Waiting for first trade…',
+        color: '#8b949e',
+        font: { size: 12, style: 'italic' },
+        padding: { bottom: 8 },
+      },
+    },
     scales: {
       x: { ticks: { color: '#8b949e', maxTicksLimit: 8, font:{size:11} }, grid: { color: '#1e2530' } },
       y: { ticks: { color: '#8b949e', callback: v => '$'+v.toFixed(2), font:{size:11} }, grid: { color: '#1e2530' } },
@@ -251,139 +308,230 @@ const pnlChart = new Chart(document.getElementById('pnl-chart').getContext('2d')
 
 // ── Helpers ────────────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
-const fmt  = (v, p=2) => v == null ? '—' : '$' + parseFloat(v).toFixed(p);
-const pct  = v => v == null ? '—' : parseFloat(v).toFixed(2) + '%';
+const fmt  = (v, p=2) => v == null ? '$0.00' : '$' + parseFloat(v).toFixed(p);
+const pct  = v => v == null ? '0.00%' : parseFloat(v).toFixed(2) + '%';
 const cls  = v => parseFloat(v) >= 0 ? 'pos' : 'neg';
 const sign = v => parseFloat(v) >= 0 ? '+' : '';
 const timeFmt = iso => iso ? new Date(iso).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) : '—';
+const dateFmt = iso => {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return d.toLocaleDateString([], {month:'short', day:'numeric', year:'2-digit'});
+};
+
+// FIX 6: scan countdown state
+let lastScanEpochMs = null;
+const SCAN_INTERVAL_MS = 300_000; // 300s default
 
 // ── Load all ───────────────────────────────────────────────────────
 async function loadAll() {
   $('spinner').style.display = 'inline-block';
   try {
-    await Promise.all([loadMetrics(), loadTrades(), loadPositions(), loadChart(), loadSvcStatus(), verifyBalance()]);
+    // Run metrics first so verifyBalance always overrides the bankroll hero
+    await loadMetrics();
+    await Promise.all([loadTrades(), loadPositions(), loadChart(), loadSvcStatus(), verifyBalance()]);
     $('last-upd').textContent = 'Updated ' + new Date().toLocaleTimeString();
   } catch(e) { console.error(e); }
   $('spinner').style.display = 'none';
 }
 
 async function loadMetrics() {
-  const d = await fetch('/api/metrics').then(r => r.json());
-  if (d.detail) return;
+  try {
+    const d = await fetch('/api/metrics').then(r => r.json());
+    if (d.detail || d.error) return;
 
-  // Bankroll — will be overridden by verifyBalance() with real CLOB value
-  $('m-bankroll').textContent = fmt(d.current_bankroll);
-  $('m-start').textContent    = 'Starting: ' + fmt(d.starting_bankroll);
+    // FIX 1: starting bankroll populates peak default
+    const starting = parseFloat(d.starting_bankroll || 20);
+    $('m-start').textContent = 'Starting: ' + fmt(starting);
 
-  const pnl = d.total_pnl;
-  $('m-pnl').innerHTML   = `<span class="${cls(pnl)}">${sign(pnl)}${fmt(pnl)}</span>`;
-  $('m-return').innerHTML = `Return: <span class="${cls(d.return_pct)}">${sign(d.return_pct)}${pct(d.return_pct)}</span>`;
+    // Bankroll — will be overridden by verifyBalance()
+    $('m-bankroll').textContent = fmt(d.current_bankroll || starting);
 
-  $('m-trades').textContent   = d.total_trades ?? 0;
-  $('m-positions').textContent = 'Open: ' + (d.active_positions_count ?? 0);
+    const pnl = parseFloat(d.total_pnl || 0);
+    $('m-pnl').innerHTML    = `<span class="${cls(pnl)}">${sign(pnl)}${fmt(pnl)}</span>`;
+    const ret = parseFloat(d.return_pct || 0);
+    $('m-return').innerHTML = `Return: <span class="${cls(ret)}">${sign(ret)}${pct(ret)}</span>`;
 
-  const dd = parseFloat(d.drawdown_pct || 0);
-  $('m-dd').innerHTML   = `<span class="${dd > 10 ? 'neg' : ''}">${dd.toFixed(1)}%</span>`;
-  $('m-peak').textContent = 'Peak: ' + fmt(d.peak_bankroll);
+    $('m-trades').textContent    = d.total_trades ?? 0;
+    $('m-positions').textContent = 'Open: ' + (d.active_positions_count ?? 0);
+
+    const dd = parseFloat(d.drawdown_pct || 0);
+    $('m-dd').innerHTML    = `<span class="${dd > 10 ? 'neg' : ''}">${dd.toFixed(1)}%</span>`;
+    // FIX 1: peak defaults to starting_bankroll
+    const peak = parseFloat(d.peak_bankroll || starting);
+    $('m-peak').textContent = 'Peak: ' + fmt(peak);
+  } catch(e) { /* keep defaults */ }
 }
 
 async function loadTrades() {
-  const d = await fetch('/api/trades?n=30').then(r => r.json());
-  const body = $('trades-body');
-  if (!d.trades?.length) {
-    body.innerHTML = '<tr><td colspan="7" class="text-center py-3" style="color:var(--muted)!important">No trades yet</td></tr>';
-    return;
-  }
-  body.innerHTML = d.trades.map(t => `
-    <tr>
-      <td style="color:var(--muted)!important">${timeFmt(t.ts)}</td>
-      <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${t.market}">${t.market}</td>
-      <td><span class="badge ${t.side==='YES'?'bg-success':'bg-danger'}">${t.side}</span></td>
-      <td>${parseFloat(t.price).toFixed(3)}</td>
-      <td>${fmt(t.stake_usd)}</td>
-      <td class="${cls(t.ev)}">${sign(t.ev*100)}${pct(t.ev*100)}</td>
-      <td><span class="${t.paper?'badge-paper':'badge-live'}">${t.paper?'paper':'live'}</span></td>
-    </tr>`).join('');
+  try {
+    const d = await fetch('/api/trades?n=30').then(r => r.json());
+    const body = $('trades-body');
+    if (!d.trades?.length) {
+      body.innerHTML = '<tr><td colspan="7" class="text-center py-3" style="color:var(--muted)!important">No trades yet</td></tr>';
+      return;
+    }
+    body.innerHTML = d.trades.map(t => `
+      <tr>
+        <td style="color:var(--muted)!important">${timeFmt(t.ts)}</td>
+        <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${t.market}">${t.market}</td>
+        <td><span class="badge ${t.side==='YES'?'bg-success':'bg-danger'}">${t.side}</span></td>
+        <td>${parseFloat(t.price).toFixed(3)}</td>
+        <td>${fmt(t.stake_usd)}</td>
+        <td class="${cls(t.ev)}">${sign(t.ev*100)}${pct(t.ev*100)}</td>
+        <td><span class="${t.paper?'badge-paper':'badge-live'}">${t.paper?'paper':'live'}</span></td>
+      </tr>`).join('');
+  } catch(e) {}
+}
+
+// FIX 7: fetch market end date from Gamma API
+async function fetchEndDate(marketId) {
+  try {
+    const d = await fetch(`https://gamma-api.polymarket.com/markets?id=${marketId}`).then(r => r.json());
+    return d[0]?.endDate || d[0]?.end_date || null;
+  } catch { return null; }
 }
 
 async function loadPositions() {
-  const d = await fetch('/api/positions').then(r => r.json());
-  const body = $('pos-body');
-  if (!d.positions?.length) {
-    body.innerHTML = '<tr><td colspan="6" class="text-center py-3" style="color:var(--muted)!important">No open positions</td></tr>';
-    return;
-  }
-  body.innerHTML = d.positions.map(p => `
-    <tr>
-      <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${p.question}">${p.question}</td>
-      <td><span class="badge ${p.side==='YES'?'bg-success':'bg-danger'}">${p.side}</span></td>
-      <td>${parseFloat(p.price).toFixed(3)}</td>
-      <td>${fmt(p.stake_usd)}</td>
-      <td class="${cls(p.ev)}">${sign(p.ev*100)}${pct(p.ev*100)}</td>
-      <td><span class="${p.paper?'badge-paper':'badge-live'}">${p.paper?'paper':'live'}</span></td>
-    </tr>`).join('');
+  try {
+    const d = await fetch('/api/positions').then(r => r.json());
+    const body = $('pos-body');
+    if (!d.positions?.length) {
+      body.innerHTML = '<tr><td colspan="7" class="text-center py-3" style="color:var(--muted)!important">No open positions</td></tr>';
+      return;
+    }
+    // Fetch end dates in parallel for all positions
+    const endDates = await Promise.all(d.positions.map(p => fetchEndDate(p.market_id)));
+    body.innerHTML = d.positions.map((p, i) => `
+      <tr>
+        <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${p.question}">${p.question}</td>
+        <td><span class="badge ${p.side==='YES'?'bg-success':'bg-danger'}">${p.side}</span></td>
+        <td>${parseFloat(p.price).toFixed(3)}</td>
+        <td>${fmt(p.stake_usd)}</td>
+        <td class="${cls(p.ev)}">${sign(p.ev*100)}${pct(p.ev*100)}</td>
+        <td style="color:var(--muted)!important;white-space:nowrap">${dateFmt(endDates[i])}</td>
+        <td><span class="${p.paper?'badge-paper':'badge-live'}">${p.paper?'paper':'live'}</span></td>
+      </tr>`).join('');
+  } catch(e) {}
 }
 
 async function loadChart() {
-  const d = await fetch('/api/chart/pnl').then(r => r.json());
-  if (!d.series?.length) return;
-  const last = d.series.at(-1)?.pnl_cumulative ?? 0;
-  pnlChart.data.labels = d.series.map(p => timeFmt(p.ts));
-  pnlChart.data.datasets[0].data = d.series.map(p => p.pnl_cumulative);
-  pnlChart.data.datasets[0].borderColor     = last >= 0 ? '#3fb950' : '#f85149';
-  pnlChart.data.datasets[0].backgroundColor = last >= 0 ? 'rgba(63,185,80,.07)' : 'rgba(248,81,73,.07)';
-  pnlChart.update('none');
+  try {
+    const d = await fetch('/api/chart/pnl').then(r => r.json());
+
+    // FIX 3: keep flat baseline + subtitle when no trades
+    if (!d.series?.length) {
+      pnlChart.options.plugins.subtitle.display = true;
+      pnlChart.data.labels = ['Now'];
+      pnlChart.data.datasets[0].data = [0];
+      pnlChart.data.datasets[0].borderColor = '#3fb950';
+      pnlChart.data.datasets[0].backgroundColor = 'rgba(63,185,80,.07)';
+      pnlChart.update('none');
+      return;
+    }
+
+    // Has data: hide subtitle, show real series
+    pnlChart.options.plugins.subtitle.display = false;
+    const last = d.series.at(-1)?.pnl_cumulative ?? 0;
+    pnlChart.data.labels = d.series.map(p => timeFmt(p.ts));
+    pnlChart.data.datasets[0].data = d.series.map(p => p.pnl_cumulative);
+    pnlChart.data.datasets[0].borderColor     = last >= 0 ? '#3fb950' : '#f85149';
+    pnlChart.data.datasets[0].backgroundColor = last >= 0 ? 'rgba(63,185,80,.07)' : 'rgba(248,81,73,.07)';
+    pnlChart.update('none');
+  } catch(e) {}
 }
 
-// ── Log panel with color coding ───────────────────────────────────
+// ── Log panel with color coding + FIX 6 timestamp parsing ─────────
 async function loadLogs() {
-  const d = await fetch('/api/logs').then(r => r.json());
-  const panel = $('log-panel');
-  const lines = d.lines || ['No logs available'];
+  try {
+    const d = await fetch('/api/logs').then(r => r.json());
+    const panel = $('log-panel');
+    const lines = d.lines || ['No logs available'];
 
-  panel.innerHTML = lines.map(line => {
-    const esc = line.replace(/&/g,'&amp;').replace(/</g,'&lt;');
-    if (esc.includes('✦ SIGNAL') || esc.includes('SIGNAL FOUND'))
-      return `<span class="l-signal">${esc}</span>`;
-    if (esc.includes('✓ EDGE'))
-      return `<span class="l-edge">${esc}</span>`;
-    if (esc.includes('✗'))
-      return `<span class="l-skip">${esc}</span>`;
-    if (esc.includes('WARNING') || esc.includes('LIVE MODE'))
-      return `<span class="l-warn">${esc}</span>`;
-    return `<span class="l-info">${esc}</span>`;
-  }).join('\n');
+    panel.innerHTML = lines.map(line => {
+      const esc = line.replace(/&/g,'&amp;').replace(/</g,'&lt;');
+      if (esc.includes('✦ SIGNAL') || esc.includes('SIGNAL FOUND'))
+        return `<span class="l-signal">${esc}</span>`;
+      if (esc.includes('✓ EDGE'))
+        return `<span class="l-edge">${esc}</span>`;
+      if (esc.includes('✗'))
+        return `<span class="l-skip">${esc}</span>`;
+      if (esc.includes('WARNING') || esc.includes('LIVE MODE'))
+        return `<span class="l-warn">${esc}</span>`;
+      return `<span class="l-info">${esc}</span>`;
+    }).join('\n');
 
-  panel.scrollTop = panel.scrollHeight;
+    panel.scrollTop = panel.scrollHeight;
+
+    // FIX 6: extract last timestamp from log lines to anchor countdown
+    // Log format: "2026-03-16 15:36:46  INFO  ..."
+    const tsPattern = /^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})/;
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const m = lines[i].match(tsPattern);
+      if (m) {
+        lastScanEpochMs = new Date(m[1] + 'Z').getTime();
+        break;
+      }
+    }
+  } catch(e) {}
+}
+
+// FIX 6: countdown tick — runs every second
+function tickCountdown() {
+  const el = $('cd-display');
+  if (!lastScanEpochMs) { el.textContent = '—'; return; }
+  const nextMs = lastScanEpochMs + SCAN_INTERVAL_MS;
+  const diffMs = nextMs - Date.now();
+  if (diffMs <= 0) {
+    el.textContent = 'scanning…';
+    el.style.color = 'var(--yellow)';
+  } else {
+    const m = Math.floor(diffMs / 60000);
+    const s = Math.floor((diffMs % 60000) / 1000);
+    el.textContent = `${m}:${String(s).padStart(2,'0')}`;
+    el.style.color = diffMs < 30000 ? 'var(--yellow)' : 'var(--blue)';
+  }
 }
 
 async function loadSvcStatus() {
-  const d = await fetch('/bot/service-status').then(r => r.json());
-  const on = d.running;
-  $('dot').className      = 'dot ' + (on ? 'on' : 'off');
-  $('ctrl-dot').className = 'dot ' + (on ? 'on' : 'off');
-  $('svc-badge').textContent = on ? 'Running' : 'Stopped';
-  $('svc-badge').className   = `badge rounded-pill px-3 py-1 ${on ? 'bg-success' : 'bg-secondary'}`;
-  $('svc-badge').style.fontSize = '.72rem';
-  $('ctrl-status').textContent = on ? 'Running' : 'Stopped';
-  const liveMode = d.live_mode;
-  $('mode-badge').textContent  = liveMode ? 'LIVE' : 'Paper';
-  $('mode-badge').className    = liveMode ? 'badge-live' : 'badge-paper';
-  $('ctrl-mode-badge').textContent = liveMode ? 'LIVE' : 'Paper';
-  $('ctrl-mode-badge').className   = liveMode ? 'badge-live ms-1' : 'badge-paper ms-1';
-  $('mode-select').value = liveMode ? 'live' : 'paper';
+  try {
+    const d = await fetch('/bot/service-status').then(r => r.json());
+    const on = d.running;
+
+    $('dot').className      = 'dot ' + (on ? 'on' : 'off');
+    $('ctrl-dot').className = 'dot ' + (on ? 'on' : 'off');
+    $('svc-badge').textContent = on ? 'Running' : 'Stopped';
+    $('svc-badge').className   = `badge rounded-pill px-3 py-1 ${on ? 'bg-success' : 'bg-secondary'}`;
+    $('svc-badge').style.fontSize = '.72rem';
+    $('ctrl-status').textContent = on ? 'Running' : 'Stopped';
+
+    const liveMode = d.live_mode;
+    $('mode-badge').textContent      = liveMode ? 'LIVE' : 'Paper';
+    $('mode-badge').className        = liveMode ? 'badge-live' : 'badge-paper';
+    $('ctrl-mode-badge').textContent = liveMode ? 'LIVE' : 'Paper';
+    $('ctrl-mode-badge').className   = liveMode ? 'badge-live ms-1' : 'badge-paper ms-1';
+    $('mode-select').value = liveMode ? 'live' : 'paper';
+
+    // FIX 4: mutually exclusive button states
+    $('btn-start').disabled = on;   // grey out Start when already running
+    $('btn-stop').disabled  = !on;  // grey out Stop when already stopped
+  } catch(e) {}
 }
 
-// ── Real balance (auto, silent) ───────────────────────────────────
+// ── Real balance (always overrides bankroll hero) ─────────────────
+// FIX 2: always set the large m-bankroll to real CLOB value
 async function verifyBalance() {
   try {
     const d = await fetch('/api/balance/real').then(r => r.json());
-    if (d.error || !d.total_real_usdc) return;
-    $('m-bankroll').textContent = '$' + parseFloat(d.total_real_usdc).toFixed(2);
+    if (d.error || d.total_real_usdc == null) return;
+
+    // Override hero bankroll with verified on-chain value
+    $('m-bankroll').textContent = '$' + parseFloat(d.total_real_usdc).toFixed(4);
+
     $('real-bal-row').style.display = 'block';
     $('real-bal-val').innerHTML = `<span style="color:var(--green)">✓ Verified on-chain</span>`;
     const parts = [];
-    if (d.clob_usdc != null)                parts.push(`CLOB $${d.clob_usdc}`);
+    if (d.clob_usdc != null)                        parts.push(`CLOB $${d.clob_usdc}`);
     if (d.wallet_usdc != null && d.wallet_usdc > 0) parts.push(`Wallet $${d.wallet_usdc}`);
     $('real-bal-detail').textContent = parts.join(' · ');
   } catch(e) { /* silent */ }
@@ -395,23 +543,23 @@ async function startBot() {
   if (mode === 'live' && !confirm('⚠️ Start in LIVE mode?\n\nReal money will be used.')) return;
   setMsg('Starting…', 'warning');
   $('btn-start').disabled = true;
+  $('btn-stop').disabled  = true;
   try {
     const d = await fetch(`/bot/start?mode=${mode}`, {method:'POST'}).then(r=>r.json());
     setMsg(d.ok ? `Started — ${mode} mode` : 'Error: ' + d.output, d.ok ? 'success' : 'danger');
     setTimeout(loadSvcStatus, 1500);
-  } catch(e) { setMsg(String(e), 'danger'); }
-  $('btn-start').disabled = false;
+  } catch(e) { setMsg(String(e), 'danger'); $('btn-start').disabled = false; }
 }
 
 async function stopBot() {
   setMsg('Stopping…', 'warning');
-  $('btn-stop').disabled = true;
+  $('btn-start').disabled = true;
+  $('btn-stop').disabled  = true;
   try {
     const d = await fetch('/bot/stop', {method:'POST'}).then(r=>r.json());
     setMsg(d.ok ? 'Bot stopped' : 'Error: ' + d.output, d.ok ? 'success' : 'danger');
     setTimeout(loadSvcStatus, 1500);
-  } catch(e) { setMsg(String(e), 'danger'); }
-  $('btn-stop').disabled = false;
+  } catch(e) { setMsg(String(e), 'danger'); $('btn-stop').disabled = false; }
 }
 
 function setMsg(msg, type) {
@@ -422,8 +570,9 @@ function setMsg(msg, type) {
 // ── Init ──────────────────────────────────────────────────────────
 loadAll();
 loadLogs();
-setInterval(loadAll,  15_000);
-setInterval(loadLogs, 10_000);  // logs refresh every 10s so you see the thinking fast
+setInterval(loadAll,        15_000);
+setInterval(loadLogs,       10_000);
+setInterval(tickCountdown,   1_000);  // FIX 6: live countdown
 </script>
 </body>
 </html>
