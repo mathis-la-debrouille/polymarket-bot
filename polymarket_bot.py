@@ -325,7 +325,11 @@ def sync_real_balance(client: "ClobClient", state: BotState) -> None:
     the locally-computed estimate.
     """
     try:
-        bal  = client.get_balance_allowance({"asset_type": "COLLATERAL", "signature_type": "EOA"})
+        from py_clob_client.clob_types import BalanceAllowanceParams, AssetType
+        # signature_type=1 = Proxy Wallet (Polymarket default for new accounts)
+        bal  = client.get_balance_allowance(BalanceAllowanceParams(
+            asset_type=AssetType.COLLATERAL, signature_type=1
+        ))
         real = float(bal.get("balance", 0)) / 1_000_000
         old  = state.current_bankroll
         state.current_bankroll = real
@@ -541,8 +545,9 @@ def main():
         try:
             client = ClobClient(
                 CLOB_HOST,
-                key      = os.environ["PRIVATE_KEY"],
-                chain_id = CHAIN_ID,
+                key              = os.environ["PRIVATE_KEY"],
+                chain_id         = CHAIN_ID,
+                signature_type   = 1,   # Proxy Wallet — required for new Polymarket accounts
             )
             # Derive or load L2 API credentials
             creds = client.create_or_derive_api_creds()

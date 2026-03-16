@@ -327,10 +327,14 @@ def real_balance():
     clob_usdc = None
     try:
         from py_clob_client.client import ClobClient
+        from py_clob_client.clob_types import BalanceAllowanceParams, AssetType
         client = ClobClient("https://clob.polymarket.com", key=pk, chain_id=137)
         creds  = client.create_or_derive_api_creds()
         client.set_api_creds(creds)
-        bal = client.get_balance_allowance({"asset_type": "COLLATERAL", "signature_type": "EOA"})
+        # signature_type=1 = Proxy Wallet (Polymarket default for new accounts)
+        bal = client.get_balance_allowance(BalanceAllowanceParams(
+            asset_type=AssetType.COLLATERAL, signature_type=1
+        ))
         clob_usdc = float(bal.get("balance", 0)) / 1_000_000
     except Exception:
         clob_usdc = None
