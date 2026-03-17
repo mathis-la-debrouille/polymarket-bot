@@ -543,13 +543,22 @@ def run_scan(client: Optional["ClobClient"], state: BotState, paper: bool) -> No
         # FIX 5: Manifold cross-platform signal
         manifold_p = fetch_manifold_price(question)
         if manifold_p is not None:
-            log.info(
-                f"  Manifold: {manifold_p:.3f} | Poly: {current_price:.3f} "
-                f"| diff: {manifold_p - current_price:+.3f}"
-            )
-            # Blend: weight Manifold 60%, MACD 40%
-            model_p = 0.4 * model_p + 0.6 * manifold_p
-            model_p = float(np.clip(model_p, 0.02, 0.98))
+            diff = abs(manifold_p - current_price)
+            if diff > 0.50:
+                # Divergence too large — likely a wrong fuzzy match; discard
+                log.info(
+                    f"  Manifold: {manifold_p:.3f} REJECTED (divergence {diff:.2f} > 0.50 "
+                    f"from Poly {current_price:.3f})"
+                )
+                manifold_p = None
+            else:
+                log.info(
+                    f"  Manifold: {manifold_p:.3f} | Poly: {current_price:.3f} "
+                    f"| diff: {manifold_p - current_price:+.3f}"
+                )
+                # Blend: weight Manifold 60%, MACD 40%
+                model_p = 0.4 * model_p + 0.6 * manifold_p
+                model_p = float(np.clip(model_p, 0.02, 0.98))
         else:
             log.info(f"  Manifold: no match for '{question[:40]}'")
 
@@ -603,19 +612,6 @@ def run_scan(client: Optional["ClobClient"], state: BotState, paper: bool) -> No
         log.info(f"    Stake     : ${stake:.2f}  |  Slippage: {slip/bet_price*100:.2f}%")
         log.info(f"    Token ID  : {token_id[:20]}…")
 
-        audit("signal", {
-            "market_id":  market_id,
-            "question":   question,
-            "side":       bet_side,
-            "price":      bet_price,
-            "model_p":    used_p,
-            "manifold_p": manifold_p,
-            "ev":         ev,
-            "stake":      stake,
-            "token_id":   token_id,
-            "paper":      paper,
-        })
-
         result = submit_order(
             client   = client,
             token_id = token_id,
@@ -625,27 +621,48 @@ def run_scan(client: Optional["ClobClient"], state: BotState, paper: bool) -> No
             paper    = paper,
         )
 
+        # Always skip this market next scan regardless of order outcome
+        # (prevents re-submitting the same signal every 5 minutes)
+        state.traded_markets.append(market_id)
+
         if result.get("status") in ("paper", "submitted"):
-            state.traded_markets.append(market_id)
             state.total_trades += 1
+            # Track position in both paper and live mode
+            state.active_positions[market_id] = {
+                "question":  question,
+                "side":      bet_side,
+                "token_id":  token_id,
+                "price":     bet_price,
+                "stake":     stake,
+                "ev":        ev,
+                "paper":     paper,
+            }
             if paper:
-                state.active_positions[market_id] = {
-                    "question":  question,
-                    "side":      bet_side,
-                    "token_id":  token_id,
-                    "price":     bet_price,
-                    "stake":     stake,
-                    "ev":        ev,
-                    "paper":     True,
-                }
+                # In paper mode deduct from tracked bankroll;
+                # in live mode the real balance is synced from CLOB each scan
                 state.current_bankroll -= stake
                 state.current_bankroll  = max(0.0, state.current_bankroll)
 
+            # Only write the signal/order audit events when the order succeeds
+            audit("signal", {
+                "market_id":  market_id,
+                "question":   question,
+                "side":       bet_side,
+                "price":      bet_price,
+                "model_p":    used_p,
+                "manifold_p": manifold_p,
+                "ev":         ev,
+                "stake":      stake,
+                "token_id":   token_id,
+                "paper":      paper,
+            })
             audit("order_placed", {
                 "market_id": market_id,
                 "stake":     stake,
                 "result":    result,
             })
+        else:
+            log.warning(f"  Order failed ({result.get('reason','?')}) — market skipped for this session")
 
         save_state(state)
 

@@ -236,7 +236,14 @@
     <!-- Recent Trades -->
     <div class="col-lg-6">
       <div class="card p-4">
-        <div class="section-title">Recent Trades</div>
+        <div class="d-flex align-items-center justify-content-between mb-3">
+          <div class="section-title mb-0">Recent Trades</div>
+          <select id="trade-filter" onchange="applyTradeFilter()" style="background:var(--bg);color:var(--muted);border:1px solid var(--border);border-radius:4px;font-size:.72rem;padding:2px 6px;cursor:pointer;">
+            <option value="all">All</option>
+            <option value="live">Live only</option>
+            <option value="paper">Paper only</option>
+          </select>
+        </div>
         <div class="scroll-table">
           <table class="table">
             <thead><tr><th>Time</th><th>Market</th><th>Side</th><th>Price</th><th>Stake</th><th>EV</th><th>Mode</th></tr></thead>
@@ -323,6 +330,11 @@ const dateFmt = iso => {
 let lastScanEpochMs = null;
 const SCAN_INTERVAL_MS = 300_000; // 300s default
 
+// Anti-flicker: cache last rendered data so DOM is only touched on real changes
+let _lastTradesJson    = null;
+let _lastPositionsJson = null;
+let _allTrades         = [];   // full list, used by filter
+
 // ── Load all ───────────────────────────────────────────────────────
 async function loadAll() {
   $('spinner').style.display = 'inline-block';
@@ -363,24 +375,39 @@ async function loadMetrics() {
   } catch(e) { /* keep defaults */ }
 }
 
+function renderTradeRow(t) {
+  return `<tr>
+    <td style="color:var(--muted)!important">${timeFmt(t.ts)}</td>
+    <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${t.market}">${t.market}</td>
+    <td><span class="badge ${t.side==='YES'?'bg-success':'bg-danger'}">${t.side}</span></td>
+    <td>${parseFloat(t.price).toFixed(3)}</td>
+    <td>${fmt(t.stake_usd)}</td>
+    <td class="${cls(t.ev)}">${sign(t.ev*100)}${pct(t.ev*100)}</td>
+    <td><span class="${t.paper?'badge-paper':'badge-live'}">${t.paper?'paper':'live'}</span></td>
+  </tr>`;
+}
+
+function applyTradeFilter() {
+  const filter = $('trade-filter').value;
+  const visible = filter === 'all'   ? _allTrades
+                : filter === 'live'  ? _allTrades.filter(t => !t.paper)
+                :                      _allTrades.filter(t =>  t.paper);
+  const body = $('trades-body');
+  if (!visible.length) {
+    body.innerHTML = '<tr><td colspan="7" class="text-center py-3" style="color:var(--muted)!important">No trades yet</td></tr>';
+  } else {
+    body.innerHTML = visible.map(renderTradeRow).join('');
+  }
+}
+
 async function loadTrades() {
   try {
     const d = await fetch('/api/trades?n=30').then(r => r.json());
-    const body = $('trades-body');
-    if (!d.trades?.length) {
-      body.innerHTML = '<tr><td colspan="7" class="text-center py-3" style="color:var(--muted)!important">No trades yet</td></tr>';
-      return;
-    }
-    body.innerHTML = d.trades.map(t => `
-      <tr>
-        <td style="color:var(--muted)!important">${timeFmt(t.ts)}</td>
-        <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${t.market}">${t.market}</td>
-        <td><span class="badge ${t.side==='YES'?'bg-success':'bg-danger'}">${t.side}</span></td>
-        <td>${parseFloat(t.price).toFixed(3)}</td>
-        <td>${fmt(t.stake_usd)}</td>
-        <td class="${cls(t.ev)}">${sign(t.ev*100)}${pct(t.ev*100)}</td>
-        <td><span class="${t.paper?'badge-paper':'badge-live'}">${t.paper?'paper':'live'}</span></td>
-      </tr>`).join('');
+    const newJson = JSON.stringify(d.trades);
+    if (newJson === _lastTradesJson) return;   // data unchanged — skip repaint
+    _lastTradesJson = newJson;
+    _allTrades = d.trades || [];
+    applyTradeFilter();
   } catch(e) {}
 }
 
@@ -395,12 +422,16 @@ async function fetchEndDate(marketId) {
 async function loadPositions() {
   try {
     const d = await fetch('/api/positions').then(r => r.json());
+    const newJson = JSON.stringify(d.positions);
+    if (newJson === _lastPositionsJson) return;   // no change — skip repaint
+    _lastPositionsJson = newJson;
+
     const body = $('pos-body');
     if (!d.positions?.length) {
       body.innerHTML = '<tr><td colspan="7" class="text-center py-3" style="color:var(--muted)!important">No open positions</td></tr>';
       return;
     }
-    // Fetch end dates in parallel for all positions
+    // Fetch end dates in parallel — keep old rows visible during fetch (no flicker)
     const endDates = await Promise.all(d.positions.map(p => fetchEndDate(p.market_id)));
     body.innerHTML = d.positions.map((p, i) => `
       <tr>

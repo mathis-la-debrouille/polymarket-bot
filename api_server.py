@@ -357,27 +357,34 @@ def real_balance():
 def chart_pnl():
     """
     Returns a time-series of cumulative P&L for charting.
+    Uses resolved positions for accurate P&L; active paper positions use entry cost.
     Format: [{ts, bankroll, pnl_cumulative}, ...]
     """
     log     = read_log(2000)
     state   = read_state()
     start   = state.get("starting_bankroll", 20.0)
 
-    events = [e for e in log if e.get("event") == "order_placed"]
+    # Build series from resolved positions (actual P&L known) + signals (order placed events)
+    # Only include events where the order actually succeeded (signal event exists)
+    signals = {e.get("market_id"): e for e in log if e.get("event") == "signal"}
+    resolved = [e for e in log if e.get("event") == "position_resolved"]
 
     series = []
     running = start
-    for e in events:
-        stake  = e.get("stake", 0)
-        result = e.get("result", {})
-        status = result.get("status", "unknown") if isinstance(result, dict) else "unknown"
-        # In paper mode we record the debit; actual PnL is not known until resolution
-        running -= stake if status in ("paper", "submitted") else 0
+
+    # Add a data point for each resolved position
+    for e in sorted(resolved, key=lambda x: x.get("ts", "")):
+        running += e.get("pnl", 0)
         series.append({
-            "ts":              e.get("ts"),
-            "bankroll":        round(running, 2),
-            "pnl_cumulative":  round(running - start, 2),
+            "ts":             e.get("ts"),
+            "bankroll":       round(running, 2),
+            "pnl_cumulative": round(running - start, 2),
         })
+
+    # If no resolved trades yet but signals exist, show flat line at start
+    if not series and signals:
+        ts = min(e.get("ts","") for e in signals.values())
+        series = [{"ts": ts, "bankroll": round(start, 2), "pnl_cumulative": 0.0}]
 
     return {
         "starting_bankroll": start,
