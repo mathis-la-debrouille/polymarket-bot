@@ -33,6 +33,7 @@ USAGE:
 import argparse
 import json
 import logging
+import math
 import os
 import sys
 import time
@@ -73,6 +74,11 @@ from signal_manifold import fetch_manifold_price
 GAMMA_API    = "https://gamma-api.polymarket.com"
 CLOB_HOST    = "https://clob.polymarket.com"
 CHAIN_ID     = 137   # Polygon mainnet
+
+# Proxy wallet — set FUNDER_ADDRESS in .env to enable live orders.
+# This is the address of the Polymarket proxy wallet that holds USDC.
+# Find yours via: the factory at 0xaB45c5A4B0c941a2F231C04C3f49182e1A254052 selector 0x74e861d6
+FUNDER_ADDRESS = os.environ.get("FUNDER_ADDRESS", "")
 
 # Risk limits
 EV_THRESHOLD      = 0.06    # minimum EV to place a bet
@@ -414,8 +420,10 @@ def submit_order(
         return {"status": "error", "reason": "clob_unavailable"}
 
     try:
+        # size must be in SHARES (not USD): shares = ceil(size_usd / price)
+        shares = math.ceil(size_usd / price)
         order_args   = OrderArgs(token_id=token_id, price=round(price, 4),
-                                 size=round(size_usd, 2), side=side_const)
+                                 size=shares, side=side_const)
         signed_order = client.create_order(order_args)
         resp         = client.post_order(signed_order)
         log.info(f"  [LIVE] Order submitted: {resp}")
@@ -697,15 +705,20 @@ def main():
     client = None
     if not paper and CLOB_AVAILABLE:
         try:
+            if not FUNDER_ADDRESS:
+                log.error("FUNDER_ADDRESS not set in .env — cannot submit live orders.")
+                log.error("Set FUNDER_ADDRESS to your Polymarket proxy wallet address.")
+                sys.exit(1)
             client = ClobClient(
                 CLOB_HOST,
                 key            = os.environ["PRIVATE_KEY"],
                 chain_id       = CHAIN_ID,
                 signature_type = 1,
+                funder         = FUNDER_ADDRESS,
             )
             creds = client.create_or_derive_api_creds()
             client.set_api_creds(creds)
-            log.info(f"  [✓] Authenticated with Polymarket CLOB")
+            log.info(f"  [✓] Authenticated with Polymarket CLOB (funder={FUNDER_ADDRESS[:10]}…)")
             audit("session_start", {"mode": "live", "bankroll": args.bankroll})
         except Exception as e:
             log.error(f"Authentication failed: {e}")
