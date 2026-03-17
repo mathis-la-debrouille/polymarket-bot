@@ -422,7 +422,39 @@
 
   </div>
 
-  <!-- ── Row 6: Bot Logs ── -->
+  <!-- ── Row 6: Market Scan ── -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Market Watch — Last Scan <i class="info tip-below" data-tip="Every market fetched this scan, sorted by EV. Shows why each was skipped. Green = signal found. Hover the WHY column for the full explanation.">i</i></span>
+      <span id="mkt-ts" style="font-size:.7rem;color:var(--muted2)"></span>
+      <div class="card-header-right">
+        <select id="mkt-filter" onchange="applyMktFilter()" style="font-size:.72rem;">
+          <option value="all">All markets</option>
+          <option value="evaluated">Evaluated only</option>
+          <option value="signal">Signals only</option>
+        </select>
+      </div>
+    </div>
+    <div class="tbl-wrap" style="max-height:360px">
+      <table>
+        <thead><tr>
+          <th style="width:35%">Market</th>
+          <th>Price</th>
+          <th>Model P</th>
+          <th>EV</th>
+          <th>Manifold</th>
+          <th>Volume</th>
+          <th>Status</th>
+          <th>Why <i class="info tip-below" data-tip="Hover the ⓘ icon in each row to see the exact reason this market was skipped or traded.">i</i></th>
+        </tr></thead>
+        <tbody id="mkt-body">
+          <tr class="empty-row"><td colspan="8">Waiting for first scan…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ── Row 7: Bot Logs ── -->
   <div class="card">
     <div class="card-header">
       <span class="card-title">Bot Logs <i class="info tip-below" data-tip="Live stdout from polymarket_bot.py. Shows every market evaluated, why it was skipped (✗), and signals found (✦). Refreshes every 10 seconds. Use the filter to focus on signals or skips only.">i</i></span>
@@ -818,13 +850,106 @@ function tickCountdown() {
 // ────────────────────────────────────────────────────────────────
 // Init
 // ────────────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────
+// Market scan table
+// ────────────────────────────────────────────────────────────────
+let _allMkts = [], _lastMktsJson = null;
+
+const SKIP_LABELS = {
+  already_traded: { label: 'Already Traded', color: 'var(--muted2)' },
+  no_history:     { label: 'No History',     color: 'var(--muted2)' },
+  near_resolved:  { label: 'Near Resolved',  color: 'var(--muted2)' },
+  no_model:       { label: 'No Model',       color: 'var(--muted2)' },
+  ev_too_low:     { label: 'EV Too Low',     color: 'var(--yellow)' },
+  stake_too_small:{ label: 'Stake Too Small',color: 'var(--yellow)' },
+  slippage:       { label: 'Slippage',       color: 'var(--yellow)' },
+  order_failed:   { label: 'Order Failed',   color: 'var(--red)'    },
+};
+
+function renderMktRow(m) {
+  if (m.skip_reason === 'already_traded') {
+    return `<tr style="opacity:.35">
+      <td class="td-trunc" title="${m.question}">${m.question}</td>
+      <td colspan="5" class="td-muted" style="font-size:.72rem">—</td>
+      <td><span class="badge" style="background:rgba(139,148,158,.1);color:var(--muted2);border:1px solid var(--border2)">Already Traded</span></td>
+      <td class="td-muted" style="font-size:.7rem">Skipped this session</td>
+    </tr>`;
+  }
+
+  const price     = m.price    != null ? m.price.toFixed(3)    : '—';
+  const modelP    = m.model_p  != null ? m.model_p.toFixed(3)  : '—';
+  const ev        = m.ev       != null ? m.ev                  : null;
+  const evPct     = ev != null ? (ev * 100).toFixed(1) + '%' : '—';
+  const evColor   = ev == null ? 'var(--muted)' : ev >= 0.06 ? 'var(--green)' : ev >= 0 ? 'var(--yellow)' : 'var(--red)';
+  const manifold  = m.manifold_p != null ? m.manifold_p.toFixed(3) : '—';
+  const vol       = m.volume != null ? '$' + (m.volume >= 1e6 ? (m.volume/1e6).toFixed(1)+'M' : (m.volume/1e3).toFixed(0)+'k') : '—';
+
+  let statusHtml;
+  if (m.signal) {
+    statusHtml = `<span class="badge badge-ok" style="font-size:.7rem">✦ Signal</span>`;
+  } else if (m.skip_reason === 'near_resolved' || m.skip_reason === 'no_history' || m.skip_reason === 'no_model') {
+    const s = SKIP_LABELS[m.skip_reason] || { label: m.skip_reason, color: 'var(--muted)' };
+    statusHtml = `<span class="badge" style="background:rgba(139,148,158,.08);color:${s.color};border:1px solid ${s.color}33;font-size:.7rem">${s.label}</span>`;
+  } else {
+    const s = SKIP_LABELS[m.skip_reason] || { label: m.skip_reason || '?', color: 'var(--muted)' };
+    statusHtml = `<span class="badge" style="background:rgba(139,148,158,.08);color:${s.color};border:1px solid ${s.color}55;font-size:.7rem">${s.label}</span>`;
+  }
+
+  const rowStyle = m.signal ? 'background:rgba(63,185,80,.04);' : '';
+  const tip = (m.skip_detail || '').replace(/"/g, '&quot;');
+
+  return `<tr style="${rowStyle}">
+    <td class="td-trunc" title="${m.question}" style="${m.signal?'font-weight:600':''}"><span style="color:var(--muted);margin-right:4px;font-size:.7rem">${m.best_side||''}</span>${m.question}</td>
+    <td class="td-mono">${price}</td>
+    <td class="td-mono" style="color:${m.model_p != null && m.price != null && Math.abs(m.model_p - m.price) > 0.05 ? 'var(--blue)' : 'inherit'}">${modelP}</td>
+    <td class="td-mono" style="color:${evColor};font-weight:${m.signal?'700':'400'}">${ev != null ? (ev >= 0 ? '+' : '') + evPct : '—'}</td>
+    <td class="td-mono" style="color:${m.manifold_p != null ? 'var(--purple)' : 'var(--muted2)'}">${manifold}</td>
+    <td class="td-muted td-mono" style="font-size:.72rem">${vol}</td>
+    <td>${statusHtml}</td>
+    <td><i class="info tip-below" data-tip="${tip}" style="cursor:help">i</i></td>
+  </tr>`;
+}
+
+function applyMktFilter() {
+  const f = $('mkt-filter').value;
+  let vis = _allMkts;
+  if (f === 'evaluated') vis = _allMkts.filter(m => m.price != null);
+  if (f === 'signal')    vis = _allMkts.filter(m => m.signal);
+
+  // Sort: signals first, then by EV desc, then skipped
+  vis = [...vis].sort((a, b) => {
+    if (a.signal && !b.signal) return -1;
+    if (!a.signal && b.signal) return 1;
+    if (a.ev != null && b.ev != null) return b.ev - a.ev;
+    if (a.ev != null) return -1;
+    if (b.ev != null) return 1;
+    return 0;
+  });
+
+  $('mkt-body').innerHTML = vis.length
+    ? vis.map(renderMktRow).join('')
+    : '<tr class="empty-row"><td colspan="8">No markets match filter</td></tr>';
+}
+
+async function loadMarkets() {
+  try {
+    const d = await fetch('/api/scan/markets').then(r => r.json());
+    const j = JSON.stringify(d.markets);
+    if (j === _lastMktsJson) return;
+    _lastMktsJson = j;
+    _allMkts = d.markets || [];
+    if (d.ts) $('mkt-ts').textContent = '— ' + new Date(d.ts).toLocaleTimeString();
+    applyMktFilter();
+  } catch(e) {}
+}
+
 let _balanceTick = 0;
 async function loadAll() {
   $('spinner').style.display = '';
   try {
     await Promise.all([
       loadMetrics(), loadKpi(), loadTrades(), loadPositions(),
-      loadChart(),   loadSvcStatus(),
+      loadChart(),   loadSvcStatus(), loadMarkets(),
     ]);
     _balanceTick++;
     if (_balanceTick % 4 === 1) loadBalance(); // every ~60s

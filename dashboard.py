@@ -112,6 +112,14 @@ async def real_balance():
         raise HTTPException(502, str(e))
 
 
+@app.get("/api/scan/markets")
+async def scan_markets():
+    try:
+        return await remote_get("/scan/markets")
+    except Exception as e:
+        raise HTTPException(502, str(e))
+
+
 @app.get("/api/kpi")
 async def kpi():
     try:

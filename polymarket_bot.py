@@ -512,13 +512,21 @@ def run_scan(client: Optional["ClobClient"], state: BotState, paper: bool) -> No
     n_evaluated         = 0
     n_manifold_match    = 0
     n_manifold_rejected = 0
+    scan_market_log: List[Dict] = []   # per-market data written to scan_markets.json
 
     for raw in raw_markets:
         market_id = raw.get("id", "")
         question  = raw.get("question", "?")[:65]
+        volume    = float(raw.get("volume", 0))
 
         if market_id in state.traded_markets:
             n_skipped_traded += 1
+            scan_market_log.append({
+                "market_id": market_id, "question": question,
+                "volume": volume, "skip_reason": "already_traded",
+                "skip_detail": "Already traded this session — bot avoids re-entering the same market.",
+                "signal": False,
+            })
             continue
 
         # Extract YES/NO token IDs from clobTokenIds field (index 0=YES, 1=NO)
@@ -528,22 +536,35 @@ def run_scan(client: Optional["ClobClient"], state: BotState, paper: bool) -> No
                 clob_ids = json.loads(clob_ids)
             yes_token_id = clob_ids[0] if len(clob_ids) > 0 else ""
             no_token_id  = clob_ids[1] if len(clob_ids) > 1 else ""
-            # Keep yes_token/no_token dicts for order submission compatibility
             yes_token = {"token_id": yes_token_id, "outcome": "YES"} if yes_token_id else None
             no_token  = {"token_id": no_token_id,  "outcome": "NO"}  if no_token_id  else None
         except Exception:
             yes_token_id, no_token_id = "", ""
             yes_token, no_token = None, None
+
         history = fetch_price_history(yes_token_id)
         if len(history) < MIN_HISTORY_POINTS:
             log.info(f"  {question[:48]:48s}  ✗ not enough price history ({len(history)} pts, need {MIN_HISTORY_POINTS})")
             n_skipped_history += 1
+            scan_market_log.append({
+                "market_id": market_id, "question": question, "volume": volume,
+                "skip_reason": "no_history",
+                "skip_detail": f"Only {len(history)} hourly candles available. Need {MIN_HISTORY_POINTS}h for MACD signal.",
+                "signal": False,
+            })
             continue
 
         current_price = history[-1]["p"]
         if not (0.05 < current_price < 0.95):
             log.info(f"  {question[:48]:48s}  ✗ near-resolved (price={current_price:.2f})")
             n_skipped_price += 1
+            scan_market_log.append({
+                "market_id": market_id, "question": question, "volume": volume,
+                "price": round(current_price, 4),
+                "skip_reason": "near_resolved",
+                "skip_detail": f"Price is {current_price:.1%} — market is near resolution. Bot only trades 5%–95% range.",
+                "signal": False,
+            })
             continue
 
         n_evaluated += 1
@@ -551,19 +572,28 @@ def run_scan(client: Optional["ClobClient"], state: BotState, paper: bool) -> No
         # FIX 3: MACD with hourly-tuned alphas
         model_p = model_probability(history)
         if model_p is None:
+            scan_market_log.append({
+                "market_id": market_id, "question": question, "volume": volume,
+                "price": round(current_price, 4),
+                "skip_reason": "no_model",
+                "skip_detail": "MACD model returned no probability (insufficient price variation).",
+                "signal": False,
+            })
             continue
 
         # FIX 5: Manifold cross-platform signal
-        manifold_p = fetch_manifold_price(question)
+        manifold_raw = fetch_manifold_price(question)
+        manifold_p   = manifold_raw
+        manifold_rejected = False
         if manifold_p is not None:
             n_manifold_match += 1
             diff = abs(manifold_p - current_price)
             if diff > 0.50:
-                # Divergence too large — likely a wrong fuzzy match; discard
                 log.info(
                     f"  Manifold: {manifold_p:.3f} REJECTED (divergence {diff:.2f} > 0.50 "
                     f"from Poly {current_price:.3f})"
                 )
+                manifold_rejected = True
                 manifold_p = None
                 n_manifold_rejected += 1
             else:
@@ -571,7 +601,6 @@ def run_scan(client: Optional["ClobClient"], state: BotState, paper: bool) -> No
                     f"  Manifold: {manifold_p:.3f} | Poly: {current_price:.3f} "
                     f"| diff: {manifold_p - current_price:+.3f}"
                 )
-                # Blend: weight Manifold 60%, MACD 40%
                 model_p = 0.4 * model_p + 0.6 * manifold_p
                 model_p = float(np.clip(model_p, 0.02, 0.98))
         else:
@@ -581,6 +610,7 @@ def run_scan(client: Optional["ClobClient"], state: BotState, paper: bool) -> No
         ev_yes  = compute_ev(model_p,       current_price)
         ev_no   = compute_ev(1 - model_p,   1 - current_price)
         best_ev = max(ev_yes, ev_no)
+        best_side = "YES" if ev_yes >= ev_no else "NO"
 
         verdict = "✓ EDGE" if best_ev >= EV_THRESHOLD else f"✗ EV too low (need {EV_THRESHOLD:.0%})"
         log.info(
@@ -602,6 +632,23 @@ def run_scan(client: Optional["ClobClient"], state: BotState, paper: bool) -> No
             token     = no_token
             used_p    = 1 - model_p
         else:
+            manifold_note = ""
+            if manifold_rejected:
+                manifold_note = f" Manifold returned {manifold_raw:.3f} but was rejected (>{50}% divergence from Poly)."
+            elif manifold_p is not None:
+                manifold_note = f" Manifold blended: {manifold_p:.3f}."
+            scan_market_log.append({
+                "market_id": market_id, "question": question, "volume": volume,
+                "price": round(current_price, 4), "model_p": round(model_p, 4),
+                "manifold_p": round(manifold_p, 4) if manifold_p else None,
+                "ev": round(best_ev, 4), "best_side": best_side,
+                "skip_reason": "ev_too_low",
+                "skip_detail": (
+                    f"Best EV is {best_ev:.1%} on {best_side} — below the {EV_THRESHOLD:.0%} threshold. "
+                    f"MACD model_p={model_p:.3f} vs market price={current_price:.3f}.{manifold_note}"
+                ),
+                "signal": False,
+            })
             continue
 
         # Slippage check
@@ -609,11 +656,29 @@ def run_scan(client: Optional["ClobClient"], state: BotState, paper: bool) -> No
         stake     = kelly_size(used_p, bet_price, state.current_bankroll)
         if stake < MIN_STAKE_USD:
             log.info(f"  Skip (Kelly stake ${stake:.2f} < min ${MIN_STAKE_USD}): {question[:40]}")
+            scan_market_log.append({
+                "market_id": market_id, "question": question, "volume": volume,
+                "price": round(current_price, 4), "model_p": round(model_p, 4),
+                "manifold_p": round(manifold_p, 4) if manifold_p else None,
+                "ev": round(best_ev, 4), "best_side": best_side,
+                "skip_reason": "stake_too_small",
+                "skip_detail": f"Kelly-sized stake ${stake:.2f} is below the ${MIN_STAKE_USD} minimum. Edge exists but bankroll too small for this bet.",
+                "signal": False,
+            })
             continue
 
         slip = lmsr_slippage(bet_price, stake, liquidity)
         if slip / bet_price > (SLIPPAGE_CAP_PCT / 100):
             log.info(f"  Skip (slippage {slip/bet_price*100:.1f}% > {SLIPPAGE_CAP_PCT}%): {question[:40]}")
+            scan_market_log.append({
+                "market_id": market_id, "question": question, "volume": volume,
+                "price": round(current_price, 4), "model_p": round(model_p, 4),
+                "manifold_p": round(manifold_p, 4) if manifold_p else None,
+                "ev": round(best_ev, 4), "best_side": best_side,
+                "skip_reason": "slippage",
+                "skip_detail": f"Market impact {slip/bet_price*100:.1f}% exceeds the {SLIPPAGE_CAP_PCT}% slippage cap. Low liquidity (${liquidity:,.0f}).",
+                "signal": False,
+            })
             continue
 
         signals_found += 1
@@ -637,12 +702,10 @@ def run_scan(client: Optional["ClobClient"], state: BotState, paper: bool) -> No
         )
 
         # Always skip this market next scan regardless of order outcome
-        # (prevents re-submitting the same signal every 5 minutes)
         state.traded_markets.append(market_id)
 
         if result.get("status") in ("paper", "submitted"):
             state.total_trades += 1
-            # Track position in both paper and live mode
             state.active_positions[market_id] = {
                 "question":  question,
                 "side":      bet_side,
@@ -653,12 +716,9 @@ def run_scan(client: Optional["ClobClient"], state: BotState, paper: bool) -> No
                 "paper":     paper,
             }
             if paper:
-                # In paper mode deduct from tracked bankroll;
-                # in live mode the real balance is synced from CLOB each scan
                 state.current_bankroll -= stake
                 state.current_bankroll  = max(0.0, state.current_bankroll)
 
-            # Only write the signal/order audit events when the order succeeds
             audit("signal", {
                 "market_id":  market_id,
                 "question":   question,
@@ -676,8 +736,27 @@ def run_scan(client: Optional["ClobClient"], state: BotState, paper: bool) -> No
                 "stake":     stake,
                 "result":    result,
             })
+            scan_market_log.append({
+                "market_id": market_id, "question": question, "volume": volume,
+                "price": round(bet_price, 4), "model_p": round(used_p, 4),
+                "manifold_p": round(manifold_p, 4) if manifold_p else None,
+                "ev": round(ev, 4), "best_side": bet_side,
+                "stake": round(stake, 2),
+                "skip_reason": None,
+                "skip_detail": f"Signal placed! {bet_side} at {bet_price:.3f} — EV {ev:.1%}, stake ${stake:.2f}.",
+                "signal": True,
+            })
         else:
             log.warning(f"  Order failed ({result.get('reason','?')}) — market skipped for this session")
+            scan_market_log.append({
+                "market_id": market_id, "question": question, "volume": volume,
+                "price": round(bet_price, 4), "model_p": round(used_p, 4),
+                "manifold_p": round(manifold_p, 4) if manifold_p else None,
+                "ev": round(ev, 4), "best_side": bet_side,
+                "skip_reason": "order_failed",
+                "skip_detail": f"Signal found (EV {ev:.1%}) but order submission failed: {result.get('reason','unknown')}.",
+                "signal": False,
+            })
 
         save_state(state)
 
@@ -685,6 +764,16 @@ def run_scan(client: Optional["ClobClient"], state: BotState, paper: bool) -> No
         log.info("  No EV signals found this scan.")
 
     save_state(state)
+
+    # Write per-market scan data for dashboard
+    try:
+        with open("scan_markets.json", "w") as f:
+            json.dump({
+                "ts":      datetime.now(timezone.utc).isoformat(),
+                "markets": scan_market_log,
+            }, f)
+    except Exception as e:
+        log.debug(f"Could not write scan_markets.json: {e}")
 
     duration_sec = round(time.time() - scan_start_time, 1)
     audit("scan_complete", {

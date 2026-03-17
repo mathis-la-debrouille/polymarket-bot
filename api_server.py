@@ -353,6 +353,25 @@ def real_balance():
     }
 
 
+SCAN_MARKETS_FILE = BOT_DIR / "scan_markets.json"
+
+
+@app.get("/scan/markets", tags=["Bot"], dependencies=[Depends(check_auth)])
+def scan_markets():
+    """
+    Per-market breakdown from the most recent scan:
+    every market fetched, with price, model_p, EV, Manifold, and the
+    exact reason it was skipped (or flagged as a signal).
+    """
+    if not SCAN_MARKETS_FILE.exists():
+        return {"ts": None, "markets": []}
+    try:
+        with open(SCAN_MARKETS_FILE) as f:
+            return json.load(f)
+    except Exception:
+        return {"ts": None, "markets": []}
+
+
 @app.get("/kpi", tags=["Bot"], dependencies=[Depends(check_auth)])
 def kpi():
     """
