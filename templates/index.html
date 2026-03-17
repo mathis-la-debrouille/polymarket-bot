@@ -200,6 +200,37 @@
     }
     @keyframes spin { to { transform: rotate(360deg); } }
 
+    /* ── Info tooltip ── */
+    .info {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 13px; height: 13px; border-radius: 50%;
+      background: var(--border2); color: var(--muted2);
+      font-size: 8px; font-weight: 700; font-style: normal;
+      cursor: help; flex-shrink: 0; margin-left: 4px;
+      position: relative; vertical-align: middle;
+      border: 1px solid var(--border); line-height: 1;
+      transition: background .15s;
+    }
+    .info:hover { background: var(--blue-dim); color: var(--blue); border-color: var(--blue); }
+    .info::after {
+      content: attr(data-tip);
+      position: absolute; bottom: calc(100% + 7px); left: 50%;
+      transform: translateX(-50%);
+      background: #1c2330; border: 1px solid var(--border);
+      color: var(--text); padding: 7px 10px; border-radius: 6px;
+      font-size: 11px; font-weight: 400; text-transform: none;
+      letter-spacing: 0; line-height: 1.45;
+      width: max-content; max-width: 210px;
+      pointer-events: none; opacity: 0;
+      transition: opacity .15s; z-index: 9999;
+      white-space: normal; box-shadow: 0 4px 12px rgba(0,0,0,.4);
+    }
+    /* flip tooltip to bottom when near top of viewport */
+    .info.tip-below::after {
+      bottom: auto; top: calc(100% + 7px);
+    }
+    .info:hover::after { opacity: 1; }
+
     /* ── Divider ── */
     .card-header {
       padding: .75rem 1.25rem;
@@ -237,40 +268,40 @@
   <div class="metrics-row">
 
     <div class="card card-body">
-      <div class="card-title">Bankroll</div>
+      <div class="card-title">Bankroll <i class="info" data-tip="Current tracked bankroll. Overridden by the verified on-chain CLOB balance when available. Starting value is set at bot launch.">i</i></div>
       <div class="metric-val" id="m-bankroll">—</div>
       <div class="metric-sub" id="m-bankroll-sub">Starting: —</div>
       <div id="m-onchain" class="metric-sub" style="margin-top:.4rem;"></div>
     </div>
 
     <div class="card card-body">
-      <div class="card-title">P &amp; L</div>
+      <div class="card-title">P &amp; L <i class="info" data-tip="Total profit/loss since bot start. Computed from resolved positions only — paper bankroll deductions for open trades are not counted here.">i</i></div>
       <div class="metric-val" id="m-pnl">—</div>
       <div class="metric-sub" id="m-return">Return: —</div>
     </div>
 
     <div class="card card-body">
-      <div class="card-title">Win Rate</div>
+      <div class="card-title">Win Rate <i class="info" data-tip="% of resolved trades that were profitable. Only meaningful once markets close and positions are settled. Green ≥50%, red <50%.">i</i></div>
       <div class="metric-val" id="m-winrate">—</div>
       <div class="metric-sub" id="m-winrate-sub">— / — trades</div>
       <div class="progress-bar-wrap"><div class="progress-bar-fill" id="m-winrate-bar" style="width:0%;background:var(--green)"></div></div>
     </div>
 
     <div class="card card-body">
-      <div class="card-title">Trades</div>
+      <div class="card-title">Trades <i class="info" data-tip="Total orders placed (paper + live). Open = positions awaiting market resolution. Resolved = markets that have closed and P&L is known.">i</i></div>
       <div class="metric-val" id="m-trades">—</div>
       <div class="metric-sub" id="m-positions">Open: — · Resolved: —</div>
     </div>
 
     <div class="card card-body">
-      <div class="card-title">Drawdown</div>
+      <div class="card-title">Drawdown <i class="info" data-tip="Current decline from peak bankroll. Kill switch triggers at 30% — the bot halts all trading automatically to protect capital.">i</i></div>
       <div class="metric-val" id="m-dd">—</div>
       <div class="metric-sub" id="m-dd-sub">Peak: — · Limit: 30%</div>
       <div class="progress-bar-wrap"><div class="progress-bar-fill" id="m-dd-bar" style="width:0%;background:var(--red)"></div></div>
     </div>
 
     <div class="card card-body">
-      <div class="card-title">Avg EV / Stake</div>
+      <div class="card-title">Avg EV / Stake <i class="info" data-tip="Average expected value across all signals. EV = (model_p / market_price) − 1. Minimum threshold to trade is 6%. Stake is sized by fractional Kelly (20%).">i</i></div>
       <div class="metric-val" id="m-avev">—</div>
       <div class="metric-sub" id="m-avgstake">Avg stake: —</div>
     </div>
@@ -281,7 +312,7 @@
   <div class="kpi-row">
 
     <div class="card card-body">
-      <div class="card-title">Avg Win / Loss</div>
+      <div class="card-title">Avg Win / Loss <i class="info" data-tip="Average dollar P&L per winning trade vs per losing trade. A good edge has avg win > avg loss. Computed from resolved positions only.">i</i></div>
       <div style="display:flex;gap:1rem;align-items:baseline">
         <span class="metric-val pos" id="kpi-avgwin">—</span>
         <span style="color:var(--muted);font-size:.8rem">/</span>
@@ -291,15 +322,15 @@
     </div>
 
     <div class="card card-body">
-      <div class="card-title">Manifold Signal</div>
+      <div class="card-title">Manifold Signal <i class="info" data-tip="% of evaluated markets where Manifold Markets provided a matching probability. Manifold is blended 60/40 with the MACD model. Matches with >50% divergence from Polymarket price are rejected as bad fuzzy matches.">i</i></div>
       <div class="metric-val" id="kpi-manifold">—</div>
       <div class="metric-sub" id="kpi-manifold-sub">Matched · rejected of signals</div>
     </div>
 
     <div class="card card-body">
-      <div class="card-title">Market Queue</div>
+      <div class="card-title">Market Queue <i class="info" data-tip="Number of markets already traded this session. The bot skips these on re-entry to avoid doubling into the same position. Resets to 0 on bot restart (capped at 200).">i</i></div>
       <div class="metric-val" id="kpi-queue">—</div>
-      <div class="metric-sub">Markets already traded (skipped on re-entry)</div>
+      <div class="metric-sub">Already traded, skipped on re-entry</div>
     </div>
 
     <div class="card card-body">
@@ -323,7 +354,7 @@
 
   <!-- ── Row 3: Last scan stats bar ── -->
   <div class="scan-bar">
-    <span class="scan-bar-label">Last Scan</span>
+    <span class="scan-bar-label">Last Scan <i class="info tip-below" data-tip="Stats from the most recent 5-minute scan cycle. The bot fetches up to 50 markets, filters by volume, history length, and price range, then evaluates EV on the remainder.">i</i></span>
     <div class="scan-stat"><span class="val" id="sc-fetched">—</span><span class="lbl">fetched</span></div>
     <div class="scan-stat"><span class="val" id="sc-traded">—</span><span class="lbl">skipped (traded)</span></div>
     <div class="scan-stat"><span class="val" id="sc-hist">—</span><span class="lbl">skipped (no history)</span></div>
@@ -341,7 +372,7 @@
   <!-- ── Row 4: P&L Chart ── -->
   <div class="card">
     <div class="card-header">
-      <span class="card-title">Cumulative P&amp;L</span>
+      <span class="card-title">Cumulative P&amp;L <i class="info tip-below" data-tip="P&L plotted only from resolved (closed) market positions. Open positions are excluded until markets settle. Flat line = no trades resolved yet.">i</i></span>
       <span id="chart-subtitle" style="font-size:.72rem;color:var(--muted)">Waiting for first resolved trade…</span>
     </div>
     <div class="card-body" style="padding-top:.75rem">
@@ -355,7 +386,7 @@
     <!-- Active Positions -->
     <div class="card">
       <div class="card-header">
-        <span class="card-title">Active Positions</span>
+        <span class="card-title">Active Positions <i class="info tip-below" data-tip="Open bets waiting for market resolution. Entry = price paid per share. EV = expected value at time of entry. These positions will be settled automatically when markets close.">i</i></span>
         <span id="pos-count" class="badge badge-blue" style="display:none">0</span>
       </div>
       <div class="tbl-wrap">
@@ -371,7 +402,7 @@
     <!-- Recent Trades -->
     <div class="card">
       <div class="card-header">
-        <span class="card-title">Recent Trades</span>
+        <span class="card-title">Recent Trades <i class="info tip-below" data-tip="Successfully placed orders (paper or live). Each row is a signal that passed all filters: EV ≥ 6%, Kelly stake ≥ $0.50, slippage < 2%. Failed orders are not shown.">i</i></span>
         <div class="card-header-right">
           <select id="trade-filter" onchange="applyTradeFilter()">
             <option value="all">All</option>
@@ -395,7 +426,7 @@
   <!-- ── Row 6: Bot Logs ── -->
   <div class="card">
     <div class="card-header">
-      <span class="card-title">Bot Logs</span>
+      <span class="card-title">Bot Logs <i class="info tip-below" data-tip="Live stdout from polymarket_bot.py. Shows every market evaluated, why it was skipped (✗), and signals found (✦). Refreshes every 10 seconds. Use the filter to focus on signals or skips only.">i</i></span>
       <span style="font-size:.7rem;color:var(--muted2)">— live output, auto-scroll</span>
       <div class="card-header-right">
         <select id="log-filter" onchange="applyLogFilter()" style="font-size:.72rem;">
@@ -702,7 +733,7 @@ function renderLogs() {
 
 async function loadLogs() {
   try {
-    const d = await fetch('/bot/logs').then(r => r.json());
+    const d = await fetch('/api/logs').then(r => r.json());
     _allLogLines = d.lines || [];
     renderLogs();
 
