@@ -856,7 +856,8 @@ function tickCountdown() {
 let _allMkts = [], _lastMktsJson = null;
 
 const SKIP_LABELS = {
-  already_traded: { label: 'Already Traded', color: 'var(--muted2)' },
+  already_traded: { label: 'Attempted',      color: 'var(--blue)'   },
+  position_open:  { label: 'Position Open',  color: 'var(--green)'  },
   no_history:     { label: 'No History',     color: 'var(--muted2)' },
   near_resolved:  { label: 'Near Resolved',  color: 'var(--muted2)' },
   no_model:       { label: 'No Model',       color: 'var(--muted2)' },
@@ -866,47 +867,76 @@ const SKIP_LABELS = {
   order_failed:   { label: 'Order Failed',   color: 'var(--red)'    },
 };
 
+function fmtVol(v) {
+  if (v == null) return '—';
+  return '$' + (v >= 1e6 ? (v/1e6).toFixed(1)+'M' : v >= 1e3 ? (v/1e3).toFixed(0)+'k' : v);
+}
+
 function renderMktRow(m) {
-  if (m.skip_reason === 'already_traded') {
-    return `<tr style="opacity:.35">
+  const s   = SKIP_LABELS[m.skip_reason] || { label: m.skip_reason || '?', color: 'var(--muted)' };
+  const tip = (m.skip_detail || '').replace(/"/g, '&quot;');
+  const vol = fmtVol(m.volume);
+
+  // Already-traded / position-open rows: dimmed, condensed
+  if (m.skip_reason === 'already_traded' || m.skip_reason === 'position_open') {
+    const opacity = m.skip_reason === 'position_open' ? '.7' : '.35';
+    return `<tr style="opacity:${opacity}">
       <td class="td-trunc" title="${m.question}">${m.question}</td>
-      <td colspan="5" class="td-muted" style="font-size:.72rem">—</td>
-      <td><span class="badge" style="background:rgba(139,148,158,.1);color:var(--muted2);border:1px solid var(--border2)">Already Traded</span></td>
-      <td class="td-muted" style="font-size:.7rem">Skipped this session</td>
+      <td class="td-muted">—</td><td class="td-muted">—</td><td class="td-muted">—</td><td class="td-muted">—</td>
+      <td class="td-muted td-mono" style="font-size:.72rem">${vol}</td>
+      <td><span class="badge" style="background:rgba(88,166,255,.08);color:${s.color};border:1px solid ${s.color}44;font-size:.7rem">${s.label}</span></td>
+      <td><i class="info tip-below" data-tip="${tip}">i</i></td>
     </tr>`;
   }
 
-  const price     = m.price    != null ? m.price.toFixed(3)    : '—';
-  const modelP    = m.model_p  != null ? m.model_p.toFixed(3)  : '—';
-  const ev        = m.ev       != null ? m.ev                  : null;
-  const evPct     = ev != null ? (ev * 100).toFixed(1) + '%' : '—';
-  const evColor   = ev == null ? 'var(--muted)' : ev >= 0.06 ? 'var(--green)' : ev >= 0 ? 'var(--yellow)' : 'var(--red)';
-  const manifold  = m.manifold_p != null ? m.manifold_p.toFixed(3) : '—';
-  const vol       = m.volume != null ? '$' + (m.volume >= 1e6 ? (m.volume/1e6).toFixed(1)+'M' : (m.volume/1e3).toFixed(0)+'k') : '—';
+  // Near-resolved / no-history: show price as "X% YES", rest empty — explain why
+  if (m.skip_reason === 'near_resolved' || m.skip_reason === 'no_history' || m.skip_reason === 'no_model') {
+    const priceDisp = m.price != null
+      ? `<span style="color:var(--muted2);font-size:.72rem">${(m.price*100).toFixed(1)}% YES</span>`
+      : '<span class="td-muted">—</span>';
+    return `<tr style="opacity:.4">
+      <td class="td-trunc" title="${m.question}">${m.question}</td>
+      <td>${priceDisp}</td>
+      <td class="td-muted" title="Not computed — market filtered before MACD step">—</td>
+      <td class="td-muted" title="Not computed — market filtered before EV step">—</td>
+      <td class="td-muted" title="Not computed — market filtered before Manifold step">—</td>
+      <td class="td-muted td-mono" style="font-size:.72rem">${vol}</td>
+      <td><span class="badge" style="background:rgba(139,148,158,.07);color:${s.color};border:1px solid ${s.color}33;font-size:.7rem">${s.label}</span></td>
+      <td><i class="info tip-below" data-tip="${tip}">i</i></td>
+    </tr>`;
+  }
+
+  // Fully evaluated rows (EV Too Low, Signal, Slippage, etc.)
+  const price   = m.price   != null ? m.price.toFixed(3)   : '—';
+  const modelP  = m.model_p != null ? m.model_p.toFixed(3) : '—';
+  const ev      = m.ev;
+  const evPct   = ev != null ? (ev >= 0 ? '+' : '') + (ev*100).toFixed(1) + '%' : '—';
+  const evColor = ev == null ? 'var(--muted)' : ev >= 0.06 ? 'var(--green)' : ev >= 0 ? 'var(--yellow)' : 'var(--red)';
+  const mani    = m.manifold_p != null ? m.manifold_p.toFixed(3) : '—';
+  const maniCol = m.manifold_p != null ? 'var(--purple)' : 'var(--muted2)';
+  const modCol  = m.model_p != null && m.price != null && Math.abs(m.model_p - m.price) > 0.05 ? 'var(--blue)' : 'inherit';
 
   let statusHtml;
   if (m.signal) {
     statusHtml = `<span class="badge badge-ok" style="font-size:.7rem">✦ Signal</span>`;
-  } else if (m.skip_reason === 'near_resolved' || m.skip_reason === 'no_history' || m.skip_reason === 'no_model') {
-    const s = SKIP_LABELS[m.skip_reason] || { label: m.skip_reason, color: 'var(--muted)' };
-    statusHtml = `<span class="badge" style="background:rgba(139,148,158,.08);color:${s.color};border:1px solid ${s.color}33;font-size:.7rem">${s.label}</span>`;
   } else {
-    const s = SKIP_LABELS[m.skip_reason] || { label: m.skip_reason || '?', color: 'var(--muted)' };
     statusHtml = `<span class="badge" style="background:rgba(139,148,158,.08);color:${s.color};border:1px solid ${s.color}55;font-size:.7rem">${s.label}</span>`;
   }
 
-  const rowStyle = m.signal ? 'background:rgba(63,185,80,.04);' : '';
-  const tip = (m.skip_detail || '').replace(/"/g, '&quot;');
+  const rowBg = m.signal ? 'background:rgba(63,185,80,.05);' : '';
+  const bold  = m.signal ? 'font-weight:600;' : '';
 
-  return `<tr style="${rowStyle}">
-    <td class="td-trunc" title="${m.question}" style="${m.signal?'font-weight:600':''}"><span style="color:var(--muted);margin-right:4px;font-size:.7rem">${m.best_side||''}</span>${m.question}</td>
+  return `<tr style="${rowBg}">
+    <td class="td-trunc" title="${m.question}" style="${bold}">
+      ${m.best_side ? `<span style="color:var(--muted);font-size:.7rem;margin-right:4px">${m.best_side}</span>` : ''}${m.question}
+    </td>
     <td class="td-mono">${price}</td>
-    <td class="td-mono" style="color:${m.model_p != null && m.price != null && Math.abs(m.model_p - m.price) > 0.05 ? 'var(--blue)' : 'inherit'}">${modelP}</td>
-    <td class="td-mono" style="color:${evColor};font-weight:${m.signal?'700':'400'}">${ev != null ? (ev >= 0 ? '+' : '') + evPct : '—'}</td>
-    <td class="td-mono" style="color:${m.manifold_p != null ? 'var(--purple)' : 'var(--muted2)'}">${manifold}</td>
+    <td class="td-mono" style="color:${modCol}">${modelP}</td>
+    <td class="td-mono" style="color:${evColor};${bold}">${evPct}</td>
+    <td class="td-mono" style="color:${maniCol}">${mani}</td>
     <td class="td-muted td-mono" style="font-size:.72rem">${vol}</td>
     <td>${statusHtml}</td>
-    <td><i class="info tip-below" data-tip="${tip}" style="cursor:help">i</i></td>
+    <td><i class="info tip-below" data-tip="${tip}">i</i></td>
   </tr>`;
 }
 

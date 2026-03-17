@@ -521,10 +521,19 @@ def run_scan(client: Optional["ClobClient"], state: BotState, paper: bool) -> No
 
         if market_id in state.traded_markets:
             n_skipped_traded += 1
+            if market_id in state.active_positions:
+                skip_reason  = "position_open"
+                skip_detail  = "Position currently open — bot holds this market and is waiting for resolution."
+            else:
+                skip_reason  = "already_traded"
+                skip_detail  = (
+                    "Processed this session (order attempted or placed). "
+                    "Skipped to avoid re-entry. Only successful trades appear in Recent Trades."
+                )
             scan_market_log.append({
                 "market_id": market_id, "question": question,
-                "volume": volume, "skip_reason": "already_traded",
-                "skip_detail": "Already traded this session — bot avoids re-entering the same market.",
+                "volume": volume, "skip_reason": skip_reason,
+                "skip_detail": skip_detail,
                 "signal": False,
             })
             continue
