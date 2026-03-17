@@ -110,7 +110,8 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
     handlers=[
         logging.StreamHandler(sys.stdout),
-        logging.FileHandler("bot_output.log"),
+        # NOTE: no FileHandler — stdout is redirected to bot_output.log
+        # by the shell (>> bot_output.log), so FileHandler would duplicate every line.
     ],
 )
 log = logging.getLogger(__name__)

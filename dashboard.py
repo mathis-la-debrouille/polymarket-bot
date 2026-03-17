@@ -133,7 +133,7 @@ async def logs():
 @app.get("/bot/service-status")
 async def service_status():
     try:
-        _, out, _ = ssh_run("pgrep -a -f 'python.*polymarket_bot.py' 2>/dev/null || true")
+        _, out, _ = ssh_run("ps aux | grep 'polymarket_bot.py' | grep -v grep || true")
         running   = bool(out.strip())
         live_mode = "--live" in out
         return {"running": running, "live_mode": live_mode}
@@ -144,7 +144,7 @@ async def service_status():
 @app.post("/bot/start")
 async def bot_start(mode: str = "paper"):
     try:
-        _, existing, _ = ssh_run("pgrep -f 'python.*polymarket_bot.py' 2>/dev/null || true")
+        _, existing, _ = ssh_run("ps aux | grep 'polymarket_bot.py' | grep -v grep || true")
         if existing.strip():
             return {"ok": False, "output": "Bot is already running"}
         flag = "--live" if mode == "live" else ""
