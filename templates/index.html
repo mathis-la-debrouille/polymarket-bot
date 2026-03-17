@@ -3,466 +3,603 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Polymarket Bot</title>
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <title>Polymarket Bot — Dashboard</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <style>
+    /* ── Design tokens ── */
     :root {
-      --bg:      #0d1117;
-      --surface: #161b22;
-      --border:  #30363d;
-      --text:    #e6edf3;
-      --muted:   #8b949e;
-      --green:   #3fb950;
-      --red:     #f85149;
-      --yellow:  #d29922;
-      --blue:    #58a6ff;
+      --bg:        #0d1117;
+      --surface:   #161b22;
+      --surface2:  #1c2330;
+      --border:    #30363d;
+      --border2:   #21262d;
+      --text:      #e6edf3;
+      --muted:     #8b949e;
+      --muted2:    #556270;
+      --green:     #3fb950;
+      --green-dim: rgba(63,185,80,.15);
+      --red:       #f85149;
+      --red-dim:   rgba(248,81,73,.15);
+      --blue:      #58a6ff;
+      --blue-dim:  rgba(88,166,255,.12);
+      --yellow:    #d29922;
+      --yellow-dim:rgba(210,153,34,.15);
+      --purple:    #bc8cff;
+      --radius:    8px;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      font-size: 14px;
+      line-height: 1.5;
+      min-height: 100vh;
     }
 
-    *, *::before, *::after { box-sizing: border-box; }
-    html, body { background: var(--bg) !important; color: var(--text) !important; font-family: 'Segoe UI', system-ui, sans-serif; min-height: 100vh; }
-
-    /* ── Bootstrap overrides ── */
-    .card           { background: var(--surface) !important; border: 1px solid var(--border) !important; border-radius: 10px; color: var(--text) !important; }
-    .card *         { color: inherit; }
-    .table          { --bs-table-bg: transparent; --bs-table-color: var(--text); color: var(--text) !important; margin: 0; }
-    .table thead th { color: var(--muted) !important; background: var(--surface) !important; border-color: var(--border) !important; font-size: .7rem; text-transform: uppercase; letter-spacing: .06em; font-weight: 500; padding: .5rem .75rem; }
-    .table td       { color: var(--text) !important; background: var(--surface) !important; border-color: var(--border) !important; font-size: .83rem; vertical-align: middle; padding: .5rem .75rem; }
-    .table tbody tr:hover td { background: rgba(88,166,255,.07) !important; }
-    .badge.bg-success { background-color: rgba(63,185,80,.25) !important; color: var(--green) !important; border: 1px solid rgba(63,185,80,.4); }
-    .badge.bg-danger  { background-color: rgba(248,81,73,.2) !important;  color: var(--red)   !important; border: 1px solid rgba(248,81,73,.4); }
+    /* ── Scrollbar ── */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 
     /* ── Topbar ── */
-    .topbar { background: var(--surface); border-bottom: 1px solid var(--border); padding: .75rem 1.5rem; display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
-    .topbar .title  { font-weight: 700; font-size: 1rem; color: var(--text); }
-    .topbar .meta   { font-size: .73rem; color: var(--muted); margin-left: auto; display: flex; align-items: center; gap: .6rem; }
+    .topbar {
+      position: sticky; top: 0; z-index: 100;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 0 1.5rem;
+      height: 48px;
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+    .topbar-brand { font-weight: 700; font-size: .95rem; letter-spacing: -.01em; white-space: nowrap; }
+    .topbar-sep   { width: 1px; height: 20px; background: var(--border); flex-shrink: 0; }
+    .topbar-right { margin-left: auto; display: flex; align-items: center; gap: .75rem; }
+    .topbar-meta  { font-size: .72rem; color: var(--muted); }
 
     /* ── Status dot ── */
-    .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
-    .dot.on  { background: var(--green); box-shadow: 0 0 7px var(--green); animation: blink 2s infinite; }
-    .dot.off { background: var(--red); }
-    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
+    .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .dot-on  { background: var(--green); box-shadow: 0 0 6px var(--green); animation: pulse 2s infinite; }
+    .dot-off { background: var(--red); }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.35} }
 
     /* ── Badges ── */
-    .badge-paper { background: rgba(210,153,34,.12); color: var(--yellow) !important; border: 1px solid rgba(210,153,34,.4); font-size: .7rem; padding: 2px 8px; border-radius: 4px; }
-    .badge-live  { background: rgba(248,81,73,.12);  color: var(--red)    !important; border: 1px solid rgba(248,81,73,.4);  font-size: .7rem; padding: 2px 8px; border-radius: 4px; }
+    .badge {
+      font-size: .68rem; font-weight: 600; padding: 2px 8px;
+      border-radius: 4px; letter-spacing: .02em; white-space: nowrap;
+    }
+    .badge-live   { background: var(--red-dim);    color: var(--red);    border: 1px solid rgba(248,81,73,.35); }
+    .badge-paper  { background: var(--yellow-dim); color: var(--yellow); border: 1px solid rgba(210,153,34,.35); }
+    .badge-ok     { background: var(--green-dim);  color: var(--green);  border: 1px solid rgba(63,185,80,.35); }
+    .badge-warn   { background: var(--red-dim);    color: var(--red);    border: 1px solid rgba(248,81,73,.35); }
+    .badge-blue   { background: var(--blue-dim);   color: var(--blue);   border: 1px solid rgba(88,166,255,.35); }
+    .badge-yes    { background: var(--green-dim);  color: var(--green);  border: 1px solid rgba(63,185,80,.35); }
+    .badge-no     { background: var(--red-dim);    color: var(--red);    border: 1px solid rgba(248,81,73,.35); }
 
-    /* ── Metric cards ── */
-    /* FIX 2: bankroll hero is bigger and always white */
-    .metric-val         { font-size: 1.9rem; font-weight: 700; line-height: 1.1; color: var(--text) !important; }
-    .metric-val.hero    { font-size: 2.2rem; }
-    .metric-label       { font-size: .7rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin-bottom: .35rem; }
-    .metric-sub         { font-size: .78rem; color: var(--muted); margin-top: .3rem; }
+    /* ── Layout ── */
+    .page { padding: 1.25rem 1.5rem; max-width: 1440px; margin: 0 auto; display: flex; flex-direction: column; gap: 1rem; }
 
-    /* ── Buttons ── */
-    .btn-go   { background: var(--green); border: none; color: #000 !important; font-weight: 600; font-size: .85rem; padding: .45rem 1.2rem; border-radius: 6px; width: 100%; cursor: pointer; transition: opacity .15s; }
-    .btn-go:hover:not(:disabled) { background: #52d56b; }
-    .btn-go:disabled { opacity: .35; cursor: not-allowed; background: var(--green); }
-    .btn-halt { background: transparent; border: 1px solid var(--red); color: var(--red) !important; font-weight: 600; font-size: .85rem; padding: .45rem 1.2rem; border-radius: 6px; width: 100%; cursor: pointer; transition: opacity .15s; }
-    .btn-halt:hover:not(:disabled) { background: rgba(248,81,73,.12); }
-    .btn-halt:disabled { opacity: .35; cursor: not-allowed; }
+    /* ── Cards ── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+    .card-body { padding: 1rem 1.25rem; }
+    .card-title {
+      font-size: .68rem; font-weight: 600; text-transform: uppercase;
+      letter-spacing: .08em; color: var(--muted); margin-bottom: .75rem;
+    }
 
-    /* ── Select ── */
-    select.form-select { background-color: var(--bg) !important; color: var(--text) !important; border-color: var(--border) !important; font-size: .85rem; }
-    select.form-select option { background: var(--surface); color: var(--text); }
+    /* ── Metric cards grid ── */
+    .metrics-row { display: grid; grid-template-columns: repeat(6, 1fr); gap: .75rem; }
+    @media (max-width: 1200px) { .metrics-row { grid-template-columns: repeat(3, 1fr); } }
+    @media (max-width: 700px)  { .metrics-row { grid-template-columns: repeat(2, 1fr); } }
 
-    /* ── Colours ── */
-    .pos   { color: var(--green) !important; }
-    .neg   { color: var(--red)   !important; }
-    .c-muted { color: var(--muted); }
+    .metric-val   { font-size: 1.65rem; font-weight: 700; line-height: 1.1; letter-spacing: -.02em; }
+    .metric-sub   { font-size: .72rem; color: var(--muted); margin-top: .3rem; line-height: 1.4; }
+    .metric-sub b { color: var(--text); font-weight: 500; }
+    .pos { color: var(--green) !important; }
+    .neg { color: var(--red)   !important; }
+    .neu { color: var(--muted) !important; }
+
+    /* ── KPI row ── */
+    .kpi-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: .75rem; }
+    @media (max-width: 900px)  { .kpi-row { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 500px)  { .kpi-row { grid-template-columns: 1fr 1fr; } }
+
+    /* ── Scan stats bar ── */
+    .scan-bar {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: .6rem 1.25rem;
+      display: flex;
+      align-items: center;
+      gap: 1.5rem;
+      flex-wrap: wrap;
+    }
+    .scan-bar-label { font-size: .68rem; text-transform: uppercase; letter-spacing: .07em; color: var(--muted2); flex-shrink: 0; }
+    .scan-stat { display: flex; align-items: center; gap: .4rem; font-size: .78rem; }
+    .scan-stat .val { font-weight: 600; color: var(--text); }
+    .scan-stat .lbl { color: var(--muted); }
+    .scan-bar-right { margin-left: auto; display: flex; align-items: center; gap: .5rem; font-size: .75rem; color: var(--muted); }
+    .countdown-val  { font-weight: 700; color: var(--blue); font-variant-numeric: tabular-nums; }
+
+    /* ── Two-column layout ── */
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; }
+    @media (max-width: 900px) { .two-col { grid-template-columns: 1fr; } }
+
+    /* ── Chart ── */
+    .chart-wrap { position: relative; height: 180px; }
+
+    /* ── Tables ── */
+    .tbl-wrap { overflow-y: auto; max-height: 280px; }
+    table { width: 100%; border-collapse: collapse; }
+    thead th {
+      font-size: .67rem; text-transform: uppercase; letter-spacing: .07em;
+      color: var(--muted); padding: .5rem .75rem; text-align: left;
+      position: sticky; top: 0; background: var(--surface); border-bottom: 1px solid var(--border);
+    }
+    tbody td { font-size: .8rem; padding: .45rem .75rem; border-bottom: 1px solid var(--border2); vertical-align: middle; }
+    tbody tr:last-child td { border-bottom: none; }
+    tbody tr:hover td { background: var(--blue-dim); }
+    .td-muted { color: var(--muted); }
+    .td-trunc { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .td-mono  { font-family: 'SF Mono', 'Fira Code', monospace; font-size: .75rem; }
+    .empty-row td { color: var(--muted2) !important; text-align: center; padding: 1.5rem; font-size: .8rem; }
 
     /* ── Log panel ── */
-    /* FIX 5: pre-wrap instead of pre so long lines wrap */
     .log-panel {
       background: #070b10;
       font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
-      font-size: .71rem;
-      height: 320px;
+      font-size: .7rem;
+      height: 300px;
       overflow-y: auto;
-      padding: 12px 14px;
-      border-radius: 8px;
-      border: 1px solid var(--border);
+      padding: .75rem 1rem;
+      border-radius: 0 0 var(--radius) var(--radius);
       white-space: pre-wrap;
       overflow-wrap: break-word;
-      word-break: break-all;
-      line-height: 1.65;
+      line-height: 1.6;
     }
-    .log-panel .l-info    { color: #7ee787; }
-    .log-panel .l-warn    { color: var(--yellow); }
-    .log-panel .l-edge    { color: #fff; font-weight: 600; }
-    .log-panel .l-skip    { color: #556270; }
-    .log-panel .l-signal  { color: #ffa657; font-weight: 700; }
+    .l-info   { color: #7ee787; }
+    .l-warn   { color: var(--yellow); }
+    .l-err    { color: var(--red); }
+    .l-skip   { color: #3a4450; }
+    .l-signal { color: #ffa657; font-weight: 700; }
+    .l-edge   { color: #fff; font-weight: 600; }
 
-    /* FIX 6: scan countdown */
-    .scan-countdown {
-      margin-top: .6rem;
-      font-size: .75rem;
-      color: var(--muted);
-      display: flex;
-      align-items: center;
-      gap: .4rem;
+    /* ── Controls ── */
+    .controls-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; margin-top: .75rem; }
+    .btn {
+      font-size: .8rem; font-weight: 600; padding: .5rem .75rem;
+      border-radius: 6px; border: none; cursor: pointer;
+      transition: opacity .15s, background .15s;
+      width: 100%;
     }
-    .scan-countdown .cd-val { color: var(--blue); font-variant-numeric: tabular-nums; font-weight: 600; }
+    .btn:disabled { opacity: .35; cursor: not-allowed; }
+    .btn-start { background: var(--green); color: #000; }
+    .btn-start:hover:not(:disabled) { background: #52d56b; }
+    .btn-stop  { background: transparent; border: 1px solid var(--red); color: var(--red); }
+    .btn-stop:hover:not(:disabled)  { background: var(--red-dim); }
 
-    /* ── Scan table ── */
-    .scan-row-pass td { color: var(--green) !important; }
-    .scan-row-fail td { color: var(--muted) !important; }
+    /* ── Select ── */
+    select {
+      background: var(--bg); color: var(--text); border: 1px solid var(--border);
+      border-radius: 4px; font-size: .78rem; padding: 3px 6px; cursor: pointer;
+    }
+    select option { background: var(--surface); }
 
     /* ── Spinner ── */
-    .spin { width: 14px; height: 14px; border: 2px solid var(--border); border-top-color: var(--blue); border-radius: 50%; animation: spin .7s linear infinite; display: inline-block; }
+    .spin {
+      width: 12px; height: 12px;
+      border: 2px solid var(--border); border-top-color: var(--blue);
+      border-radius: 50%; animation: spin .6s linear infinite; display: inline-block;
+    }
     @keyframes spin { to { transform: rotate(360deg); } }
 
-    /* ── Section title ── */
-    .section-title { font-size: .7rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin-bottom: 1rem; }
+    /* ── Divider ── */
+    .card-header {
+      padding: .75rem 1.25rem;
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; gap: .75rem;
+    }
+    .card-header .card-title { margin: 0; }
+    .card-header-right { margin-left: auto; display: flex; align-items: center; gap: .5rem; }
 
-    /* ── Scroll tables ── */
-    .scroll-table { max-height: 260px; overflow-y: auto; }
+    /* ── Mini progress bar ── */
+    .progress-bar-wrap { margin-top: .4rem; background: var(--border2); border-radius: 2px; height: 3px; overflow: hidden; }
+    .progress-bar-fill { height: 100%; border-radius: 2px; transition: width .4s; }
   </style>
 </head>
 <body>
 
-<!-- ── Topbar ── -->
+<!-- ── Top bar ── -->
 <div class="topbar">
-  <span class="dot off" id="dot"></span>
-  <span class="title">Polymarket Bot</span>
-  <span id="svc-badge" class="badge rounded-pill px-3 py-1" style="font-size:.72rem;">Checking…</span>
-  <span id="mode-badge" class="badge-paper">Paper</span>
-  <div class="meta">
-    <span id="last-upd" style="color:var(--muted)">Loading…</span>
-    <span id="spinner" style="display:none" class="spin"></span>
+  <span class="dot dot-off" id="dot"></span>
+  <span class="topbar-brand">Polymarket Bot</span>
+  <div class="topbar-sep"></div>
+  <span id="mode-badge" class="badge badge-paper">Paper</span>
+  <span id="kill-badge" class="badge badge-ok">Kill Switch: OK</span>
+  <div class="topbar-right">
+    <span class="topbar-meta" id="uptime-label">Uptime: —</span>
+    <div class="topbar-sep"></div>
+    <span class="spin" id="spinner" style="display:none"></span>
+    <span class="topbar-meta" id="last-upd">—</span>
   </div>
 </div>
 
-<div class="container-fluid px-4 py-4" style="max-width:1400px;">
+<div class="page">
 
-  <!-- ── Metric cards ── -->
-  <!-- FIX 1: default zero values instead of "—" -->
-  <div class="row g-3 mb-4">
-    <div class="col-6 col-xl-3">
-      <div class="card p-3 h-100">
-        <div class="metric-label">Bankroll</div>
-        <!-- FIX 2: hero class for larger prominent number -->
-        <div class="metric-val hero" id="m-bankroll">—</div>
-        <div class="metric-sub" id="m-start">Starting: —</div>
-        <div id="real-bal-row" style="display:none; margin-top:.5rem; padding-top:.5rem; border-top:1px solid var(--border);">
-          <div id="real-bal-val" style="font-size:.75rem;"></div>
-          <div id="real-bal-detail" style="font-size:.68rem; color:var(--muted); margin-top:.1rem;"></div>
-        </div>
-      </div>
+  <!-- ── Row 1: Performance metrics ── -->
+  <div class="metrics-row">
+
+    <div class="card card-body">
+      <div class="card-title">Bankroll</div>
+      <div class="metric-val" id="m-bankroll">—</div>
+      <div class="metric-sub" id="m-bankroll-sub">Starting: —</div>
+      <div id="m-onchain" class="metric-sub" style="margin-top:.4rem;"></div>
     </div>
-    <div class="col-6 col-xl-3">
-      <div class="card p-3 h-100">
-        <div class="metric-label">P&amp;L</div>
-        <div class="metric-val" id="m-pnl">—</div>
-        <div class="metric-sub" id="m-return" style="color:var(--muted)">Return: —</div>
-      </div>
+
+    <div class="card card-body">
+      <div class="card-title">P &amp; L</div>
+      <div class="metric-val" id="m-pnl">—</div>
+      <div class="metric-sub" id="m-return">Return: —</div>
     </div>
-    <div class="col-6 col-xl-3">
-      <div class="card p-3 h-100">
-        <div class="metric-label">Trades</div>
-        <div class="metric-val" id="m-trades">—</div>
-        <div class="metric-sub" id="m-positions" style="color:var(--muted)">Open: —</div>
-      </div>
+
+    <div class="card card-body">
+      <div class="card-title">Win Rate</div>
+      <div class="metric-val" id="m-winrate">—</div>
+      <div class="metric-sub" id="m-winrate-sub">— / — trades</div>
+      <div class="progress-bar-wrap"><div class="progress-bar-fill" id="m-winrate-bar" style="width:0%;background:var(--green)"></div></div>
     </div>
-    <div class="col-6 col-xl-3">
-      <div class="card p-3 h-100">
-        <div class="metric-label">Drawdown</div>
-        <div class="metric-val" id="m-dd">—</div>
-        <div class="metric-sub" id="m-peak" style="color:var(--muted)">Peak: —</div>
+
+    <div class="card card-body">
+      <div class="card-title">Trades</div>
+      <div class="metric-val" id="m-trades">—</div>
+      <div class="metric-sub" id="m-positions">Open: — · Resolved: —</div>
+    </div>
+
+    <div class="card card-body">
+      <div class="card-title">Drawdown</div>
+      <div class="metric-val" id="m-dd">—</div>
+      <div class="metric-sub" id="m-dd-sub">Peak: — · Limit: 30%</div>
+      <div class="progress-bar-wrap"><div class="progress-bar-fill" id="m-dd-bar" style="width:0%;background:var(--red)"></div></div>
+    </div>
+
+    <div class="card card-body">
+      <div class="card-title">Avg EV / Stake</div>
+      <div class="metric-val" id="m-avev">—</div>
+      <div class="metric-sub" id="m-avgstake">Avg stake: —</div>
+    </div>
+
+  </div>
+
+  <!-- ── Row 2: Strategy KPIs ── -->
+  <div class="kpi-row">
+
+    <div class="card card-body">
+      <div class="card-title">Avg Win / Loss</div>
+      <div style="display:flex;gap:1rem;align-items:baseline">
+        <span class="metric-val pos" id="kpi-avgwin">—</span>
+        <span style="color:var(--muted);font-size:.8rem">/</span>
+        <span class="metric-val neg" id="kpi-avgloss">—</span>
       </div>
+      <div class="metric-sub" id="kpi-resolved">No resolved trades yet</div>
+    </div>
+
+    <div class="card card-body">
+      <div class="card-title">Manifold Signal</div>
+      <div class="metric-val" id="kpi-manifold">—</div>
+      <div class="metric-sub" id="kpi-manifold-sub">Matched · rejected of signals</div>
+    </div>
+
+    <div class="card card-body">
+      <div class="card-title">Market Queue</div>
+      <div class="metric-val" id="kpi-queue">—</div>
+      <div class="metric-sub">Markets already traded (skipped on re-entry)</div>
+    </div>
+
+    <div class="card card-body">
+      <div class="card-title">Bot Control</div>
+      <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.5rem">
+        <span class="dot dot-off" id="ctrl-dot"></span>
+        <span id="ctrl-status" style="font-size:.85rem;font-weight:600">—</span>
+      </div>
+      <select id="mode-select" style="width:100%;margin-bottom:.5rem">
+        <option value="paper">Paper (simulation)</option>
+        <option value="live">Live — real trades ⚠️</option>
+      </select>
+      <div class="controls-grid">
+        <button class="btn btn-start" id="btn-start" onclick="startBot()" disabled>▶ Start</button>
+        <button class="btn btn-stop"  id="btn-stop"  onclick="stopBot()"  disabled>■ Stop</button>
+      </div>
+      <div id="ctrl-msg" style="font-size:.72rem;margin-top:.4rem;min-height:1.2em;"></div>
+    </div>
+
+  </div>
+
+  <!-- ── Row 3: Last scan stats bar ── -->
+  <div class="scan-bar">
+    <span class="scan-bar-label">Last Scan</span>
+    <div class="scan-stat"><span class="val" id="sc-fetched">—</span><span class="lbl">fetched</span></div>
+    <div class="scan-stat"><span class="val" id="sc-traded">—</span><span class="lbl">skipped (traded)</span></div>
+    <div class="scan-stat"><span class="val" id="sc-hist">—</span><span class="lbl">skipped (no history)</span></div>
+    <div class="scan-stat"><span class="val" id="sc-price">—</span><span class="lbl">near-resolved</span></div>
+    <div class="scan-stat"><span class="val" id="sc-eval">—</span><span class="lbl">evaluated</span></div>
+    <div class="scan-stat"><span class="val" id="sc-signals">—</span><span class="lbl">signals</span></div>
+    <div class="scan-stat"><span class="val" id="sc-manifold">—</span><span class="lbl">manifold matched</span></div>
+    <div class="scan-stat"><span class="val" id="sc-rejected">—</span><span class="lbl">rejected</span></div>
+    <div class="scan-stat"><span class="val" id="sc-dur">—</span><span class="lbl">duration</span></div>
+    <div class="scan-bar-right">
+      Next scan in <span class="countdown-val" id="cd-val">—</span>
     </div>
   </div>
 
-  <!-- ── Controls + Positions ── -->
-  <div class="row g-3 mb-4">
-
-    <!-- Control panel -->
-    <div class="col-12 col-md-4 col-lg-3">
-      <div class="card p-4 h-100">
-        <div class="section-title">Bot Control</div>
-
-        <div class="d-flex align-items-center gap-2 mb-3">
-          <span class="dot off" id="ctrl-dot"></span>
-          <span id="ctrl-status" style="font-weight:600; font-size:.9rem; color:var(--text)">Checking…</span>
-          <span id="ctrl-mode-badge" class="badge-paper ms-1">Paper</span>
-        </div>
-
-        <label class="metric-label mb-1">Mode</label>
-        <select class="form-select form-select-sm mb-3" id="mode-select">
-          <option value="paper">Paper (simulation)</option>
-          <option value="live">Live — real trades ⚠️</option>
-        </select>
-
-        <!-- FIX 4: buttons start disabled until service status loads -->
-        <div style="display:flex; flex-direction:column; gap:.5rem;">
-          <button class="btn-go"  id="btn-start" onclick="startBot()" disabled>▶ Start</button>
-          <button class="btn-halt" id="btn-stop"  onclick="stopBot()"  disabled>■ Stop</button>
-        </div>
-
-        <div id="ctrl-msg" class="mt-3" style="font-size:.8rem; min-height:1.4em;"></div>
-      </div>
+  <!-- ── Row 4: P&L Chart ── -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Cumulative P&amp;L</span>
+      <span id="chart-subtitle" style="font-size:.72rem;color:var(--muted)">Waiting for first resolved trade…</span>
     </div>
-
-    <!-- Active positions -->
-    <!-- FIX 7: added CLOSES column -->
-    <div class="col-12 col-md-8 col-lg-9">
-      <div class="card p-4 h-100">
-        <div class="section-title">Active Positions</div>
-        <div class="scroll-table">
-          <table class="table">
-            <thead><tr><th>Market</th><th>Side</th><th>Entry</th><th>Stake</th><th>EV</th><th>Closes</th><th>Mode</th></tr></thead>
-            <tbody id="pos-body">
-              <tr><td colspan="7" class="text-center py-3" style="color:var(--muted)!important">No open positions</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
+    <div class="card-body" style="padding-top:.75rem">
+      <div class="chart-wrap"><canvas id="pnl-chart"></canvas></div>
     </div>
   </div>
 
-  <!-- ── P&L Chart ── -->
-  <div class="row g-3 mb-4">
-    <div class="col-12">
-      <div class="card p-4">
-        <div class="section-title">Cumulative P&amp;L</div>
-        <canvas id="pnl-chart" height="65"></canvas>
+  <!-- ── Row 5: Positions + Trades ── -->
+  <div class="two-col">
+
+    <!-- Active Positions -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">Active Positions</span>
+        <span id="pos-count" class="badge badge-blue" style="display:none">0</span>
+      </div>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>Market</th><th>Side</th><th>Entry</th><th>Stake</th><th>EV</th><th>Mode</th></tr></thead>
+          <tbody id="pos-body">
+            <tr class="empty-row"><td colspan="6">No open positions</td></tr>
+          </tbody>
+        </table>
       </div>
     </div>
-  </div>
-
-  <!-- ── Trades + Logs ── -->
-  <div class="row g-3">
 
     <!-- Recent Trades -->
-    <div class="col-lg-6">
-      <div class="card p-4">
-        <div class="d-flex align-items-center justify-content-between mb-3">
-          <div class="section-title mb-0">Recent Trades</div>
-          <select id="trade-filter" onchange="applyTradeFilter()" style="background:var(--bg);color:var(--muted);border:1px solid var(--border);border-radius:4px;font-size:.72rem;padding:2px 6px;cursor:pointer;">
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">Recent Trades</span>
+        <div class="card-header-right">
+          <select id="trade-filter" onchange="applyTradeFilter()">
             <option value="all">All</option>
-            <option value="live">Live only</option>
-            <option value="paper">Paper only</option>
+            <option value="live">Live</option>
+            <option value="paper">Paper</option>
           </select>
         </div>
-        <div class="scroll-table">
-          <table class="table">
-            <thead><tr><th>Time</th><th>Market</th><th>Side</th><th>Price</th><th>Stake</th><th>EV</th><th>Mode</th></tr></thead>
-            <tbody id="trades-body">
-              <tr><td colspan="7" class="text-center py-3" style="color:var(--muted)!important">No trades yet</td></tr>
-            </tbody>
-          </table>
-        </div>
       </div>
-    </div>
-
-    <!-- Bot Logs -->
-    <div class="col-lg-6">
-      <div class="card p-4">
-        <div class="d-flex align-items-center justify-content-between mb-3">
-          <div class="section-title mb-0">Bot Logs <span id="log-hint" style="font-size:.68rem; color:var(--muted); text-transform:none; letter-spacing:0; font-weight:400;">— why each market is skipped</span></div>
-          <button onclick="loadLogs()" style="background:none;border:none;color:var(--muted);font-size:.75rem;cursor:pointer;padding:0;">↺ Refresh</button>
-        </div>
-        <div class="log-panel" id="log-panel"><span class="l-info">Loading…</span></div>
-        <!-- FIX 6: scan countdown -->
-        <div class="scan-countdown">
-          <span>Next scan in</span>
-          <span class="cd-val" id="cd-display">—</span>
-        </div>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>Time</th><th>Market</th><th>Side</th><th>Price</th><th>Stake</th><th>EV</th><th>Mode</th></tr></thead>
+          <tbody id="trades-body">
+            <tr class="empty-row"><td colspan="7">No trades yet</td></tr>
+          </tbody>
+        </table>
       </div>
     </div>
 
   </div>
-</div>
+
+  <!-- ── Row 6: Bot Logs ── -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Bot Logs</span>
+      <span style="font-size:.7rem;color:var(--muted2)">— live output, auto-scroll</span>
+      <div class="card-header-right">
+        <select id="log-filter" onchange="applyLogFilter()" style="font-size:.72rem;">
+          <option value="all">All levels</option>
+          <option value="signal">Signals only</option>
+          <option value="skip">Skips only</option>
+        </select>
+        <button onclick="loadLogs()" style="background:none;border:none;color:var(--muted);font-size:.75rem;cursor:pointer;padding:0 .25rem;">↺</button>
+      </div>
+    </div>
+    <div class="log-panel" id="log-panel"><span class="l-info">Loading…</span></div>
+  </div>
+
+</div><!-- /page -->
 
 <script>
-// ── Chart ──────────────────────────────────────────────────────────
-// FIX 3: empty state placeholder shown until real data arrives
+// ────────────────────────────────────────────────────────────────
+// Chart init
+// ────────────────────────────────────────────────────────────────
 const pnlChart = new Chart(document.getElementById('pnl-chart').getContext('2d'), {
   type: 'line',
-  data: {
-    labels: ['Now'],
-    datasets: [{
-      label: 'P&L (USD)',
-      data: [0],
-      borderColor: '#3fb950',
-      backgroundColor: 'rgba(63,185,80,.07)',
-      borderWidth: 2,
-      pointRadius: 2,
-      fill: true,
-      tension: 0.4,
-    }]
-  },
+  data: { labels: [], datasets: [{
+    label: 'P&L (USD)',
+    data: [],
+    borderColor: '#3fb950',
+    backgroundColor: 'rgba(63,185,80,.07)',
+    borderWidth: 2, pointRadius: 3, fill: true, tension: 0.35,
+  }]},
   options: {
-    responsive: true,
+    responsive: true, maintainAspectRatio: false,
+    animation: false,
     plugins: {
       legend: { display: false },
-      tooltip: { callbacks: { label: ctx => ' $' + ctx.parsed.y.toFixed(2) } },
-      // FIX 3: subtitle shown while no trades
-      subtitle: {
-        display: true,
-        text: 'Waiting for first trade…',
-        color: '#8b949e',
-        font: { size: 12, style: 'italic' },
-        padding: { bottom: 8 },
-      },
+      tooltip: { callbacks: { label: c => ' $' + c.parsed.y.toFixed(2) } },
     },
     scales: {
-      x: { ticks: { color: '#8b949e', maxTicksLimit: 8, font:{size:11} }, grid: { color: '#1e2530' } },
-      y: { ticks: { color: '#8b949e', callback: v => '$'+v.toFixed(2), font:{size:11} }, grid: { color: '#1e2530' } },
+      x: { ticks: { color: '#8b949e', maxTicksLimit: 8, font:{size:10} }, grid: { color: '#1a2030' } },
+      y: { ticks: { color: '#8b949e', callback: v => '$'+v.toFixed(2), font:{size:10} }, grid: { color: '#1a2030' } },
     },
   },
 });
 
-// ── Helpers ────────────────────────────────────────────────────────
-const $ = id => document.getElementById(id);
-const fmt  = (v, p=2) => v == null ? '—' : '$' + parseFloat(v).toFixed(p);
-const pct  = v => v == null ? '—' : parseFloat(v).toFixed(2) + '%';
-const cls  = v => parseFloat(v) >= 0 ? 'pos' : 'neg';
-const sign = v => parseFloat(v) >= 0 ? '+' : '';
-const timeFmt = iso => iso ? new Date(iso).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) : '—';
-const dateFmt = iso => {
-  if (!iso) return '—';
-  const d = new Date(iso);
-  return d.toLocaleDateString([], {month:'short', day:'numeric', year:'2-digit'});
-};
+// ────────────────────────────────────────────────────────────────
+// Helpers
+// ────────────────────────────────────────────────────────────────
+const $  = id => document.getElementById(id);
+const fmt  = (v, d=2)  => v == null ? '—' : '$' + parseFloat(v).toFixed(d);
+const pct  = v          => v == null ? '—' : parseFloat(v).toFixed(1) + '%';
+const ev2pct = v        => v == null ? '—' : (parseFloat(v) * 100).toFixed(1) + '%';
+const cls  = v          => parseFloat(v) >= 0 ? 'pos' : 'neg';
+const sign = v          => parseFloat(v) >= 0 ? '+' : '';
+const timeFmt = iso     => iso ? new Date(iso).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) : '—';
 
-// FIX 6: scan countdown state
-let lastScanEpochMs = null;
-const SCAN_INTERVAL_MS = 300_000; // 300s default
+// Anti-flicker caches
+let _lastTradesJson = null, _lastPosJson = null;
+let _allTrades = [], _allLogLines = [];
+let _lastScanTs = null;
 
-// Anti-flicker: cache last rendered data so DOM is only touched on real changes
-let _lastTradesJson    = null;
-let _lastPositionsJson = null;
-let _allTrades         = [];   // full list, used by filter
-
-// ── Load all ───────────────────────────────────────────────────────
-async function loadAll() {
-  $('spinner').style.display = 'inline-block';
-  try {
-    // Run metrics first so verifyBalance always overrides the bankroll hero
-    await loadMetrics();
-    await Promise.all([loadTrades(), loadPositions(), loadChart(), loadSvcStatus(), verifyBalance()]);
-    $('last-upd').textContent = 'Updated ' + new Date().toLocaleTimeString();
-  } catch(e) { console.error(e); }
-  $('spinner').style.display = 'none';
-}
-
+// ────────────────────────────────────────────────────────────────
+// Metrics
+// ────────────────────────────────────────────────────────────────
 async function loadMetrics() {
   try {
     const d = await fetch('/api/metrics').then(r => r.json());
-    if (d.detail || d.error) return;
-
-    // FIX 1: starting bankroll populates peak default
+    if (d.error) return;
     const starting = parseFloat(d.starting_bankroll || 20);
-    $('m-start').textContent = 'Starting: ' + fmt(starting);
+    const current  = parseFloat(d.current_bankroll  || starting);
+    const pnl      = parseFloat(d.total_pnl         || 0);
+    const ret      = parseFloat(d.return_pct         || 0);
+    const dd       = parseFloat(d.drawdown_pct       || 0);
+    const peak     = parseFloat(d.peak_bankroll      || starting);
 
-    // Bankroll — will be overridden by verifyBalance()
-    $('m-bankroll').textContent = fmt(d.current_bankroll || starting);
+    $('m-bankroll').textContent    = fmt(current);
+    $('m-bankroll-sub').textContent = `Starting: ${fmt(starting)}  ·  Peak: ${fmt(peak)}`;
 
-    const pnl = parseFloat(d.total_pnl || 0);
-    $('m-pnl').innerHTML    = `<span class="${cls(pnl)}">${sign(pnl)}${fmt(pnl)}</span>`;
-    const ret = parseFloat(d.return_pct || 0);
-    $('m-return').innerHTML = `Return: <span class="${cls(ret)}">${sign(ret)}${pct(ret)}</span>`;
+    $('m-pnl').className = 'metric-val ' + cls(pnl);
+    $('m-pnl').textContent = sign(pnl) + fmt(pnl);
+    $('m-return').innerHTML = `Return: <b class="${cls(ret)}">${sign(ret)}${pct(ret)}</b>`;
 
-    $('m-trades').textContent    = d.total_trades ?? 0;
-    $('m-positions').textContent = 'Open: ' + (d.active_positions_count ?? 0);
+    $('m-trades').textContent  = d.total_trades ?? 0;
+    $('m-positions').textContent = `Open: ${d.active_positions_count ?? 0} · Resolved: ${d.total_trades ?? 0}`;
 
-    const dd = parseFloat(d.drawdown_pct || 0);
-    $('m-dd').innerHTML    = `<span class="${dd > 10 ? 'neg' : ''}">${dd.toFixed(1)}%</span>`;
-    // FIX 1: peak defaults to starting_bankroll
-    const peak = parseFloat(d.peak_bankroll || starting);
-    $('m-peak').textContent = 'Peak: ' + fmt(peak);
-  } catch(e) { /* keep defaults */ }
-}
+    $('m-dd').className = 'metric-val ' + (dd > 20 ? 'neg' : dd > 10 ? '' : '');
+    $('m-dd').textContent = pct(dd);
+    $('m-dd-sub').textContent = `Peak: ${fmt(peak)}  ·  Limit: 30%`;
+    $('m-dd-bar').style.width = Math.min(dd / 30 * 100, 100) + '%';
+    $('m-dd-bar').style.background = dd > 20 ? 'var(--red)' : dd > 10 ? 'var(--yellow)' : 'var(--green)';
 
-function renderTradeRow(t) {
-  return `<tr>
-    <td style="color:var(--muted)!important">${timeFmt(t.ts)}</td>
-    <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${t.market}">${t.market}</td>
-    <td><span class="badge ${t.side==='YES'?'bg-success':'bg-danger'}">${t.side}</span></td>
-    <td>${parseFloat(t.price).toFixed(3)}</td>
-    <td>${fmt(t.stake_usd)}</td>
-    <td class="${cls(t.ev)}">${sign(t.ev*100)}${pct(t.ev*100)}</td>
-    <td><span class="${t.paper?'badge-paper':'badge-live'}">${t.paper?'paper':'live'}</span></td>
-  </tr>`;
-}
+    const avgEv = d.avg_ev;
+    $('m-avev').textContent = avgEv != null ? ev2pct(avgEv) : '—';
+    $('m-avev').className   = 'metric-val ' + (avgEv > 0 ? 'pos' : '');
+    $('m-avgstake').textContent = `Avg stake: ${fmt(d.avg_stake_usd)}`;
 
-function applyTradeFilter() {
-  const filter = $('trade-filter').value;
-  const visible = filter === 'all'   ? _allTrades
-                : filter === 'live'  ? _allTrades.filter(t => !t.paper)
-                :                      _allTrades.filter(t =>  t.paper);
-  const body = $('trades-body');
-  if (!visible.length) {
-    body.innerHTML = '<tr><td colspan="7" class="text-center py-3" style="color:var(--muted)!important">No trades yet</td></tr>';
-  } else {
-    body.innerHTML = visible.map(renderTradeRow).join('');
-  }
-}
-
-async function loadTrades() {
-  try {
-    const d = await fetch('/api/trades?n=30').then(r => r.json());
-    const newJson = JSON.stringify(d.trades);
-    if (newJson === _lastTradesJson) return;   // data unchanged — skip repaint
-    _lastTradesJson = newJson;
-    _allTrades = d.trades || [];
-    applyTradeFilter();
+    // Kill switch badge
+    $('kill-badge').textContent = d.kill_switch_triggered ? '⚠ Kill Switch: TRIGGERED' : 'Kill Switch: OK';
+    $('kill-badge').className   = d.kill_switch_triggered ? 'badge badge-warn' : 'badge badge-ok';
   } catch(e) {}
 }
 
-// FIX 7: fetch market end date from Gamma API
-async function fetchEndDate(marketId) {
+// ────────────────────────────────────────────────────────────────
+// KPI
+// ────────────────────────────────────────────────────────────────
+async function loadKpi() {
   try {
-    const d = await fetch(`https://gamma-api.polymarket.com/markets?id=${marketId}`).then(r => r.json());
-    return d[0]?.endDate || d[0]?.end_date || null;
-  } catch { return null; }
-}
+    const d = await fetch('/api/kpi').then(r => r.json());
 
-async function loadPositions() {
-  try {
-    const d = await fetch('/api/positions').then(r => r.json());
-    const newJson = JSON.stringify(d.positions);
-    if (newJson === _lastPositionsJson) return;   // no change — skip repaint
-    _lastPositionsJson = newJson;
-
-    const body = $('pos-body');
-    if (!d.positions?.length) {
-      body.innerHTML = '<tr><td colspan="7" class="text-center py-3" style="color:var(--muted)!important">No open positions</td></tr>';
-      return;
+    // Win rate
+    if (d.win_rate != null) {
+      const wr = d.win_rate * 100;
+      $('m-winrate').className = 'metric-val ' + (wr >= 50 ? 'pos' : 'neg');
+      $('m-winrate').textContent = wr.toFixed(1) + '%';
+      $('m-winrate-sub').textContent = `${d.total_wins}W / ${d.total_losses}L of ${d.total_resolved}`;
+      $('m-winrate-bar').style.width = wr + '%';
+      $('m-winrate-bar').style.background = wr >= 50 ? 'var(--green)' : 'var(--red)';
+    } else {
+      $('m-winrate').textContent = '—';
+      $('m-winrate-sub').textContent = 'No resolved trades yet';
     }
-    // Fetch end dates in parallel — keep old rows visible during fetch (no flicker)
-    const endDates = await Promise.all(d.positions.map(p => fetchEndDate(p.market_id)));
-    body.innerHTML = d.positions.map((p, i) => `
-      <tr>
-        <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${p.question}">${p.question}</td>
-        <td><span class="badge ${p.side==='YES'?'bg-success':'bg-danger'}">${p.side}</span></td>
-        <td>${parseFloat(p.price).toFixed(3)}</td>
-        <td>${fmt(p.stake_usd)}</td>
-        <td class="${cls(p.ev)}">${sign(p.ev*100)}${pct(p.ev*100)}</td>
-        <td style="color:var(--muted)!important;white-space:nowrap">${dateFmt(endDates[i])}</td>
-        <td><span class="${p.paper?'badge-paper':'badge-live'}">${p.paper?'paper':'live'}</span></td>
-      </tr>`).join('');
+
+    // Avg win/loss
+    $('kpi-avgwin').textContent  = d.avg_win_usd  != null ? '+' + fmt(d.avg_win_usd)  : '—';
+    $('kpi-avgloss').textContent = d.avg_loss_usd != null ? fmt(d.avg_loss_usd)        : '—';
+    $('kpi-resolved').textContent = d.total_resolved
+      ? `${d.total_wins} wins · ${d.total_losses} losses · ${d.total_resolved} total`
+      : 'No resolved trades yet';
+
+    // Manifold
+    const mPct = d.manifold_used_pct;
+    $('kpi-manifold').textContent = mPct != null ? mPct.toFixed(0) + '%' : '—';
+    const ls = d.last_scan;
+    if (ls && ls.manifold_matched != null) {
+      $('kpi-manifold-sub').textContent = `${ls.manifold_matched} matched · ${ls.manifold_rejected} rejected last scan`;
+    }
+
+    // Queue
+    $('kpi-queue').textContent = d.traded_markets_queued ?? '—';
+
+    // Avg EV override if kpi has it
+    if (d.avg_ev != null) {
+      $('m-avev').textContent = ev2pct(d.avg_ev);
+      $('m-avev').className   = 'metric-val ' + (d.avg_ev > 0 ? 'pos' : '');
+    }
+    if (d.avg_stake != null) {
+      $('m-avgstake').textContent = 'Avg stake: ' + fmt(d.avg_stake);
+    }
+
+    // Last scan bar
+    if (ls && ls.ts) {
+      _lastScanTs = new Date(ls.ts).getTime();
+      $('sc-fetched').textContent  = ls.markets_fetched          ?? '—';
+      $('sc-traded').textContent   = ls.markets_skipped_traded   ?? '—';
+      $('sc-hist').textContent     = ls.markets_skipped_history  ?? '—';
+      $('sc-price').textContent    = ls.markets_skipped_price    ?? '—';
+      $('sc-eval').textContent     = ls.markets_evaluated        ?? '—';
+      $('sc-signals').textContent  = ls.signals_found            ?? '—';
+      $('sc-manifold').textContent = ls.manifold_matched         ?? '—';
+      $('sc-rejected').textContent = ls.manifold_rejected        ?? '—';
+      $('sc-dur').textContent      = ls.duration_sec != null ? ls.duration_sec + 's' : '—';
+
+      // Colour signals cell
+      const sigEl = $('sc-signals');
+      sigEl.style.color = ls.signals_found > 0 ? 'var(--green)' : 'var(--text)';
+    }
+
+    // Session info → uptime label
+    if (d.session_started_at) {
+      const sec = (Date.now() - new Date(d.session_started_at).getTime()) / 1000;
+      $('uptime-label').textContent = 'Session: ' + fmtDur(sec);
+    }
   } catch(e) {}
 }
 
+// ────────────────────────────────────────────────────────────────
+// Real balance
+// ────────────────────────────────────────────────────────────────
+async function loadBalance() {
+  try {
+    const d = await fetch('/api/balance/real').then(r => r.json());
+    if (d.error || d.total_real_usdc == null) return;
+    const parts = [];
+    if (d.clob_usdc   != null) parts.push(`CLOB $${d.clob_usdc}`);
+    if (d.wallet_usdc != null && d.wallet_usdc > 0) parts.push(`Wallet $${d.wallet_usdc}`);
+    $('m-onchain').innerHTML =
+      `<span style="color:var(--green);font-size:.7rem">✓ On-chain: $${parseFloat(d.total_real_usdc).toFixed(4)}</span>` +
+      (parts.length ? `<br><span style="color:var(--muted2);font-size:.67rem">${parts.join(' · ')}</span>` : '');
+    // Also override bankroll
+    $('m-bankroll').textContent = '$' + parseFloat(d.total_real_usdc).toFixed(4);
+  } catch(e) {}
+}
+
+// ────────────────────────────────────────────────────────────────
+// Chart
+// ────────────────────────────────────────────────────────────────
 async function loadChart() {
   try {
     const d = await fetch('/api/chart/pnl').then(r => r.json());
-
-    // FIX 3: keep flat baseline + subtitle when no trades
     if (!d.series?.length) {
-      pnlChart.options.plugins.subtitle.display = true;
-      pnlChart.data.labels = ['Now'];
-      pnlChart.data.datasets[0].data = [0];
-      pnlChart.data.datasets[0].borderColor = '#3fb950';
-      pnlChart.data.datasets[0].backgroundColor = 'rgba(63,185,80,.07)';
+      $('chart-subtitle').textContent = 'Waiting for first resolved trade…';
+      pnlChart.data.labels = [];
+      pnlChart.data.datasets[0].data = [];
       pnlChart.update('none');
       return;
     }
-
-    // Has data: hide subtitle, show real series
-    pnlChart.options.plugins.subtitle.display = false;
+    $('chart-subtitle').textContent = `${d.data_points} data points · starting $${d.starting_bankroll}`;
     const last = d.series.at(-1)?.pnl_cumulative ?? 0;
     pnlChart.data.labels = d.series.map(p => timeFmt(p.ts));
     pnlChart.data.datasets[0].data = d.series.map(p => p.pnl_cumulative);
@@ -472,138 +609,205 @@ async function loadChart() {
   } catch(e) {}
 }
 
-// ── Log panel with color coding + FIX 6 timestamp parsing ─────────
+// ────────────────────────────────────────────────────────────────
+// Positions
+// ────────────────────────────────────────────────────────────────
+async function loadPositions() {
+  try {
+    const d = await fetch('/api/positions').then(r => r.json());
+    const j = JSON.stringify(d.positions);
+    if (j === _lastPosJson) return;
+    _lastPosJson = j;
+
+    const body = $('pos-body');
+    const cnt  = $('pos-count');
+    if (!d.positions?.length) {
+      body.innerHTML = '<tr class="empty-row"><td colspan="6">No open positions</td></tr>';
+      cnt.style.display = 'none';
+      return;
+    }
+    cnt.textContent = d.positions.length;
+    cnt.style.display = '';
+    body.innerHTML = d.positions.map(p => `<tr>
+      <td class="td-trunc" title="${p.question}">${p.question}</td>
+      <td><span class="badge badge-${p.side.toLowerCase()}">${p.side}</span></td>
+      <td class="td-mono">${parseFloat(p.price).toFixed(3)}</td>
+      <td>${fmt(p.stake_usd)}</td>
+      <td class="${cls(p.ev)}">${ev2pct(p.ev)}</td>
+      <td><span class="badge ${p.paper ? 'badge-paper' : 'badge-live'}">${p.paper ? 'paper' : 'live'}</span></td>
+    </tr>`).join('');
+  } catch(e) {}
+}
+
+// ────────────────────────────────────────────────────────────────
+// Trades
+// ────────────────────────────────────────────────────────────────
+function renderTradeRow(t) {
+  return `<tr>
+    <td class="td-muted td-mono">${timeFmt(t.ts)}</td>
+    <td class="td-trunc" title="${t.market}">${t.market}</td>
+    <td><span class="badge badge-${t.side?.toLowerCase()}">${t.side}</span></td>
+    <td class="td-mono">${parseFloat(t.price||0).toFixed(3)}</td>
+    <td>${fmt(t.stake_usd)}</td>
+    <td class="${cls(t.ev)}">${ev2pct(t.ev)}</td>
+    <td><span class="badge ${t.paper ? 'badge-paper' : 'badge-live'}">${t.paper ? 'paper' : 'live'}</span></td>
+  </tr>`;
+}
+
+function applyTradeFilter() {
+  const f = $('trade-filter').value;
+  const vis = f === 'live' ? _allTrades.filter(t => !t.paper)
+            : f === 'paper' ? _allTrades.filter(t => t.paper)
+            : _allTrades;
+  $('trades-body').innerHTML = vis.length
+    ? vis.map(renderTradeRow).join('')
+    : '<tr class="empty-row"><td colspan="7">No trades yet</td></tr>';
+}
+
+async function loadTrades() {
+  try {
+    const d = await fetch('/api/trades?n=50').then(r => r.json());
+    const j = JSON.stringify(d.trades);
+    if (j === _lastTradesJson) return;
+    _lastTradesJson = j;
+    _allTrades = d.trades || [];
+    applyTradeFilter();
+  } catch(e) {}
+}
+
+// ────────────────────────────────────────────────────────────────
+// Logs
+// ────────────────────────────────────────────────────────────────
+let _logFilter = 'all';
+function applyLogFilter() {
+  _logFilter = $('log-filter').value;
+  renderLogs();
+}
+
+function renderLogs() {
+  const panel = $('log-panel');
+  let lines = _allLogLines;
+  if (_logFilter === 'signal') lines = lines.filter(l => l.includes('SIGNAL') || l.includes('✦'));
+  if (_logFilter === 'skip')   lines = lines.filter(l => l.includes('✗') || l.includes('Skip') || l.includes('skipped'));
+  panel.innerHTML = lines.map(line => {
+    const esc = line.replace(/&/g,'&amp;').replace(/</g,'&lt;');
+    if (esc.includes('✦') || esc.includes('SIGNAL'))    return `<span class="l-signal">${esc}</span>`;
+    if (esc.includes('✓ EDGE'))                          return `<span class="l-edge">${esc}</span>`;
+    if (esc.includes('✗') || esc.includes('Sleeping'))   return `<span class="l-skip">${esc}</span>`;
+    if (esc.includes('WARNING') || esc.includes('ERROR')) return `<span class="l-warn">${esc}</span>`;
+    return `<span class="l-info">${esc}</span>`;
+  }).join('\n') || '<span class="l-skip">No log lines match filter.</span>';
+  panel.scrollTop = panel.scrollHeight;
+}
+
 async function loadLogs() {
   try {
-    const d = await fetch('/api/logs').then(r => r.json());
-    const panel = $('log-panel');
-    const lines = d.lines || ['No logs available'];
+    const d = await fetch('/bot/logs').then(r => r.json());
+    _allLogLines = d.lines || [];
+    renderLogs();
 
-    panel.innerHTML = lines.map(line => {
-      const esc = line.replace(/&/g,'&amp;').replace(/</g,'&lt;');
-      if (esc.includes('✦ SIGNAL') || esc.includes('SIGNAL FOUND'))
-        return `<span class="l-signal">${esc}</span>`;
-      if (esc.includes('✓ EDGE'))
-        return `<span class="l-edge">${esc}</span>`;
-      if (esc.includes('✗'))
-        return `<span class="l-skip">${esc}</span>`;
-      if (esc.includes('WARNING') || esc.includes('LIVE MODE'))
-        return `<span class="l-warn">${esc}</span>`;
-      return `<span class="l-info">${esc}</span>`;
-    }).join('\n');
-
-    panel.scrollTop = panel.scrollHeight;
-
-    // FIX 6: extract last timestamp from log lines to anchor countdown
-    // Log format: "2026-03-16 15:36:46  INFO  ..."
-    const tsPattern = /^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})/;
-    for (let i = lines.length - 1; i >= 0; i--) {
-      const m = lines[i].match(tsPattern);
-      if (m) {
-        lastScanEpochMs = new Date(m[1] + 'Z').getTime();
-        break;
-      }
+    // Extract last timestamp for countdown
+    const tsRe = /^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})/;
+    for (let i = _allLogLines.length - 1; i >= 0; i--) {
+      const m = _allLogLines[i].match(tsRe);
+      if (m) { _lastScanTs = new Date(m[1] + 'Z').getTime(); break; }
     }
   } catch(e) {}
 }
 
-// FIX 6: countdown tick — runs every second
-function tickCountdown() {
-  const el = $('cd-display');
-  if (!lastScanEpochMs) { el.textContent = '—'; return; }
-  const nextMs = lastScanEpochMs + SCAN_INTERVAL_MS;
-  const diffMs = nextMs - Date.now();
-  if (diffMs <= 0) {
-    el.textContent = 'scanning…';
-    el.style.color = 'var(--yellow)';
-  } else {
-    const m = Math.floor(diffMs / 60000);
-    const s = Math.floor((diffMs % 60000) / 1000);
-    el.textContent = `${m}:${String(s).padStart(2,'0')}`;
-    el.style.color = diffMs < 30000 ? 'var(--yellow)' : 'var(--blue)';
-  }
-}
-
+// ────────────────────────────────────────────────────────────────
+// Service status + controls
+// ────────────────────────────────────────────────────────────────
 async function loadSvcStatus() {
   try {
     const d = await fetch('/bot/service-status').then(r => r.json());
     const on = d.running;
-
-    $('dot').className      = 'dot ' + (on ? 'on' : 'off');
-    $('ctrl-dot').className = 'dot ' + (on ? 'on' : 'off');
-    $('svc-badge').textContent = on ? 'Running' : 'Stopped';
-    $('svc-badge').className   = `badge rounded-pill px-3 py-1 ${on ? 'bg-success' : 'bg-secondary'}`;
-    $('svc-badge').style.fontSize = '.72rem';
+    $('dot').className  = 'dot ' + (on ? 'dot-on' : 'dot-off');
+    $('ctrl-dot').className = 'dot ' + (on ? 'dot-on' : 'dot-off');
     $('ctrl-status').textContent = on ? 'Running' : 'Stopped';
+    $('ctrl-status').style.color = on ? 'var(--green)' : 'var(--red)';
 
-    const liveMode = d.live_mode;
-    $('mode-badge').textContent      = liveMode ? 'LIVE' : 'Paper';
-    $('mode-badge').className        = liveMode ? 'badge-live' : 'badge-paper';
-    $('ctrl-mode-badge').textContent = liveMode ? 'LIVE' : 'Paper';
-    $('ctrl-mode-badge').className   = liveMode ? 'badge-live ms-1' : 'badge-paper ms-1';
-    $('mode-select').value = liveMode ? 'live' : 'paper';
+    const live = d.live_mode;
+    $('mode-badge').textContent = live ? 'LIVE' : 'Paper';
+    $('mode-badge').className   = live ? 'badge badge-live' : 'badge badge-paper';
+    $('mode-select').value = live ? 'live' : 'paper';
 
-    // FIX 4: mutually exclusive button states
-    $('btn-start').disabled = on;   // grey out Start when already running
-    $('btn-stop').disabled  = !on;  // grey out Stop when already stopped
+    $('btn-start').disabled = on;
+    $('btn-stop').disabled  = !on;
   } catch(e) {}
 }
 
-// ── Real balance (always overrides bankroll hero) ─────────────────
-// FIX 2: always set the large m-bankroll to real CLOB value
-async function verifyBalance() {
-  try {
-    const d = await fetch('/api/balance/real').then(r => r.json());
-    if (d.error || d.total_real_usdc == null) return;
-
-    // Override hero bankroll with verified on-chain value
-    $('m-bankroll').textContent = '$' + parseFloat(d.total_real_usdc).toFixed(4);
-
-    $('real-bal-row').style.display = 'block';
-    $('real-bal-val').innerHTML = `<span style="color:var(--green)">✓ Verified on-chain</span>`;
-    const parts = [];
-    if (d.clob_usdc != null)                        parts.push(`CLOB $${d.clob_usdc}`);
-    if (d.wallet_usdc != null && d.wallet_usdc > 0) parts.push(`Wallet $${d.wallet_usdc}`);
-    $('real-bal-detail').textContent = parts.join(' · ');
-  } catch(e) { /* silent */ }
-}
-
-// ── Bot controls ──────────────────────────────────────────────────
 async function startBot() {
   const mode = $('mode-select').value;
   if (mode === 'live' && !confirm('⚠️ Start in LIVE mode?\n\nReal money will be used.')) return;
-  setMsg('Starting…', 'warning');
-  $('btn-start').disabled = true;
-  $('btn-stop').disabled  = true;
+  setCtrlMsg('Starting…', 'yellow');
+  $('btn-start').disabled = $('btn-stop').disabled = true;
   try {
     const d = await fetch(`/bot/start?mode=${mode}`, {method:'POST'}).then(r=>r.json());
-    setMsg(d.ok ? `Started — ${mode} mode` : 'Error: ' + d.output, d.ok ? 'success' : 'danger');
+    setCtrlMsg(d.ok ? `Started — ${mode}` : 'Error: ' + d.output, d.ok ? 'green' : 'red');
     setTimeout(loadSvcStatus, 1500);
-  } catch(e) { setMsg(String(e), 'danger'); $('btn-start').disabled = false; }
+  } catch(e) { setCtrlMsg(String(e), 'red'); $('btn-start').disabled = false; }
 }
 
 async function stopBot() {
-  setMsg('Stopping…', 'warning');
-  $('btn-start').disabled = true;
-  $('btn-stop').disabled  = true;
+  setCtrlMsg('Stopping…', 'yellow');
+  $('btn-start').disabled = $('btn-stop').disabled = true;
   try {
     const d = await fetch('/bot/stop', {method:'POST'}).then(r=>r.json());
-    setMsg(d.ok ? 'Bot stopped' : 'Error: ' + d.output, d.ok ? 'success' : 'danger');
+    setCtrlMsg(d.ok ? 'Stopped' : 'Error: ' + d.output, d.ok ? 'green' : 'red');
     setTimeout(loadSvcStatus, 1500);
-  } catch(e) { setMsg(String(e), 'danger'); $('btn-stop').disabled = false; }
+  } catch(e) { setCtrlMsg(String(e), 'red'); $('btn-stop').disabled = false; }
 }
 
-function setMsg(msg, type) {
-  const c = {success:'var(--green)', warning:'var(--yellow)', danger:'var(--red)'};
-  $('ctrl-msg').innerHTML = `<span style="color:${c[type]||'inherit'}">${msg}</span>`;
+function setCtrlMsg(msg, color) {
+  $('ctrl-msg').innerHTML = `<span style="color:var(--${color})">${msg}</span>`;
 }
 
-// ── Init ──────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────
+// Countdown
+// ────────────────────────────────────────────────────────────────
+const SCAN_MS = 300_000;
+function fmtDur(sec) {
+  const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = Math.floor(sec % 60);
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
+}
+function tickCountdown() {
+  const el = $('cd-val');
+  if (!_lastScanTs) { el.textContent = '—'; return; }
+  const diff = (_lastScanTs + SCAN_MS) - Date.now();
+  if (diff <= 0) {
+    el.textContent = 'scanning…'; el.style.color = 'var(--yellow)';
+  } else {
+    el.textContent = fmtDur(diff / 1000);
+    el.style.color = diff < 30000 ? 'var(--yellow)' : 'var(--blue)';
+  }
+}
+
+// ────────────────────────────────────────────────────────────────
+// Init
+// ────────────────────────────────────────────────────────────────
+let _balanceTick = 0;
+async function loadAll() {
+  $('spinner').style.display = '';
+  try {
+    await Promise.all([
+      loadMetrics(), loadKpi(), loadTrades(), loadPositions(),
+      loadChart(),   loadSvcStatus(),
+    ]);
+    _balanceTick++;
+    if (_balanceTick % 4 === 1) loadBalance(); // every ~60s
+    $('last-upd').textContent = new Date().toLocaleTimeString();
+  } catch(e) {}
+  $('spinner').style.display = 'none';
+}
+
 loadAll();
 loadLogs();
 setInterval(loadAll,        15_000);
 setInterval(loadLogs,       10_000);
-setInterval(tickCountdown,   1_000);  // FIX 6: live countdown
+setInterval(tickCountdown,   1_000);
 </script>
 </body>
 </html>

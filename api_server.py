@@ -353,6 +353,74 @@ def real_balance():
     }
 
 
+@app.get("/kpi", tags=["Bot"], dependencies=[Depends(check_auth)])
+def kpi():
+    """
+    Aggregated performance and strategy KPIs:
+      - Win rate, resolved trade breakdown
+      - Average EV and stake from signals
+      - Last scan stats (markets scanned, evaluated, signals found, manifold)
+      - Session info
+    """
+    state   = read_state()
+    entries = read_log(2000)
+
+    signals  = [e for e in entries if e.get("event") == "signal"]
+    resolved = [e for e in entries if e.get("event") == "position_resolved"]
+    scans    = [e for e in entries if e.get("event") == "scan_complete"]
+    sessions = [e for e in entries if e.get("event") == "session_start"]
+
+    # Win/loss stats from resolved positions
+    wins   = [e for e in resolved if e.get("pnl", 0) > 0]
+    losses = [e for e in resolved if e.get("pnl", 0) <= 0]
+    win_rate = round(len(wins) / len(resolved), 4) if resolved else None
+
+    total_won_usd  = round(sum(e.get("pnl", 0) for e in wins),   2)
+    total_lost_usd = round(sum(e.get("pnl", 0) for e in losses), 2)
+    avg_win_usd    = round(total_won_usd  / len(wins),   2) if wins   else None
+    avg_loss_usd   = round(total_lost_usd / len(losses), 2) if losses else None
+
+    # Signal EV / stake stats
+    evs    = [e.get("ev",    0) for e in signals]
+    stakes = [e.get("stake", 0) for e in signals]
+    avg_ev    = round(float(np.mean(evs)),    4) if evs    else None
+    avg_stake = round(float(np.mean(stakes)), 2) if stakes else None
+
+    # Manifold stats across all signals
+    manifold_used = sum(1 for e in signals if e.get("manifold_p") is not None)
+
+    # Last scan details
+    last_scan = scans[-1] if scans else {}
+    last_session = sessions[-1] if sessions else {}
+
+    # Traded-market queue depth
+    traded_count = len(state.get("traded_markets", []))
+
+    return {
+        # Performance
+        "win_rate":         win_rate,
+        "total_resolved":   len(resolved),
+        "total_wins":       len(wins),
+        "total_losses":     len(losses),
+        "total_won_usd":    total_won_usd,
+        "total_lost_usd":   total_lost_usd,
+        "avg_win_usd":      avg_win_usd,
+        "avg_loss_usd":     avg_loss_usd,
+        # Strategy
+        "total_signals":    len(signals),
+        "avg_ev":           avg_ev,
+        "avg_stake":        avg_stake,
+        "manifold_used_pct": round(manifold_used / len(signals) * 100, 1) if signals else None,
+        # Queue
+        "traded_markets_queued": traded_count,
+        # Last scan
+        "last_scan": last_scan,
+        # Session
+        "session_mode":       last_session.get("mode"),
+        "session_started_at": last_session.get("ts"),
+    }
+
+
 @app.get("/chart/pnl", tags=["Charts"], dependencies=[Depends(check_auth)])
 def chart_pnl():
     """

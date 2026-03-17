@@ -484,6 +484,7 @@ def sync_real_balance(state: BotState, clob_client: Optional["ClobClient"] = Non
 # ──────────────────────────────────────────────────────────────────
 def run_scan(client: Optional["ClobClient"], state: BotState, paper: bool) -> None:
     """One full scan: resolve positions → fetch markets → evaluate → place trades."""
+    scan_start_time = time.time()
     log.info(f"{'─'*55}")
     log.info(f"Scan started | bankroll=${state.current_bankroll:.2f} | "
              f"{'PAPER' if paper else '🔴 LIVE'}")
@@ -503,13 +504,20 @@ def run_scan(client: Optional["ClobClient"], state: BotState, paper: bool) -> No
         log.warning("No markets returned — API may be down")
         return
 
-    signals_found = 0
+    signals_found       = 0
+    n_skipped_traded    = 0
+    n_skipped_history   = 0
+    n_skipped_price     = 0
+    n_evaluated         = 0
+    n_manifold_match    = 0
+    n_manifold_rejected = 0
 
     for raw in raw_markets:
         market_id = raw.get("id", "")
         question  = raw.get("question", "?")[:65]
 
         if market_id in state.traded_markets:
+            n_skipped_traded += 1
             continue
 
         # Extract YES/NO token IDs from clobTokenIds field (index 0=YES, 1=NO)
@@ -528,12 +536,16 @@ def run_scan(client: Optional["ClobClient"], state: BotState, paper: bool) -> No
         history = fetch_price_history(yes_token_id)
         if len(history) < MIN_HISTORY_POINTS:
             log.info(f"  {question[:48]:48s}  ✗ not enough price history ({len(history)} pts, need {MIN_HISTORY_POINTS})")
+            n_skipped_history += 1
             continue
 
         current_price = history[-1]["p"]
         if not (0.05 < current_price < 0.95):
             log.info(f"  {question[:48]:48s}  ✗ near-resolved (price={current_price:.2f})")
+            n_skipped_price += 1
             continue
+
+        n_evaluated += 1
 
         # FIX 3: MACD with hourly-tuned alphas
         model_p = model_probability(history)
@@ -543,6 +555,7 @@ def run_scan(client: Optional["ClobClient"], state: BotState, paper: bool) -> No
         # FIX 5: Manifold cross-platform signal
         manifold_p = fetch_manifold_price(question)
         if manifold_p is not None:
+            n_manifold_match += 1
             diff = abs(manifold_p - current_price)
             if diff > 0.50:
                 # Divergence too large — likely a wrong fuzzy match; discard
@@ -551,6 +564,7 @@ def run_scan(client: Optional["ClobClient"], state: BotState, paper: bool) -> No
                     f"from Poly {current_price:.3f})"
                 )
                 manifold_p = None
+                n_manifold_rejected += 1
             else:
                 log.info(
                     f"  Manifold: {manifold_p:.3f} | Poly: {current_price:.3f} "
@@ -670,6 +684,20 @@ def run_scan(client: Optional["ClobClient"], state: BotState, paper: bool) -> No
         log.info("  No EV signals found this scan.")
 
     save_state(state)
+
+    duration_sec = round(time.time() - scan_start_time, 1)
+    audit("scan_complete", {
+        "markets_fetched":      len(raw_markets),
+        "markets_skipped_traded":  n_skipped_traded,
+        "markets_skipped_history": n_skipped_history,
+        "markets_skipped_price":   n_skipped_price,
+        "markets_evaluated":    n_evaluated,
+        "manifold_matched":     n_manifold_match,
+        "manifold_rejected":    n_manifold_rejected,
+        "signals_found":        signals_found,
+        "duration_sec":         duration_sec,
+        "paper":                paper,
+    })
 
     log.info(
         f"\n  Bankroll: ${state.current_bankroll:.2f} | "

@@ -112,6 +112,14 @@ async def real_balance():
         raise HTTPException(502, str(e))
 
 
+@app.get("/api/kpi")
+async def kpi():
+    try:
+        return await remote_get("/kpi")
+    except Exception as e:
+        raise HTTPException(502, str(e))
+
+
 @app.get("/api/logs")
 async def logs():
     try:
@@ -125,11 +133,10 @@ async def logs():
 @app.get("/bot/service-status")
 async def service_status():
     try:
-        code, out, _ = ssh_run("systemctl is-active polymarket-bot")
-        active = out.strip() == "active"
-        _, unit, _ = ssh_run("cat /etc/systemd/system/polymarket-bot.service")
-        live_mode = "--live" in unit
-        return {"running": active, "live_mode": live_mode}
+        _, out, _ = ssh_run("pgrep -a -f 'python.*polymarket_bot.py' 2>/dev/null || true")
+        running   = bool(out.strip())
+        live_mode = "--live" in out
+        return {"running": running, "live_mode": live_mode}
     except Exception as e:
         raise HTTPException(502, str(e))
 
@@ -137,16 +144,17 @@ async def service_status():
 @app.post("/bot/start")
 async def bot_start(mode: str = "paper"):
     try:
-        exec_line = "/home/polybot/venv/bin/python polymarket_bot.py"
-        if mode == "live":
-            exec_line += " --live"
-
-        ssh_run(
-            f"sed -i 's|ExecStart=.*polymarket_bot.py.*|ExecStart={exec_line}|' "
-            f"/etc/systemd/system/polymarket-bot.service && systemctl daemon-reload"
+        _, existing, _ = ssh_run("pgrep -f 'python.*polymarket_bot.py' 2>/dev/null || true")
+        if existing.strip():
+            return {"ok": False, "output": "Bot is already running"}
+        flag = "--live" if mode == "live" else ""
+        cmd  = (
+            f"cd /home/polybot/app && "
+            f"sudo -u polybot /home/polybot/venv/bin/python polymarket_bot.py {flag} "
+            f">> bot_output.log 2>&1 &"
         )
-        code, out, err = ssh_run("systemctl restart polymarket-bot")
-        return {"ok": code == 0, "mode": mode, "output": out or err}
+        code, out, err = ssh_run(cmd)
+        return {"ok": True, "mode": mode, "output": "Started"}
     except Exception as e:
         raise HTTPException(502, str(e))
 
@@ -154,8 +162,8 @@ async def bot_start(mode: str = "paper"):
 @app.post("/bot/stop")
 async def bot_stop():
     try:
-        code, out, err = ssh_run("systemctl stop polymarket-bot")
-        return {"ok": code == 0, "output": out or err}
+        code, out, err = ssh_run("pkill -f 'python.*polymarket_bot.py' 2>/dev/null; echo stopped")
+        return {"ok": True, "output": "Stopped"}
     except Exception as e:
         raise HTTPException(502, str(e))
 
