@@ -267,16 +267,18 @@
   <div class="metrics-row">
 
     <div class="card card-body">
-      <div class="card-title">Bankroll <i class="info" data-tip="Current tracked bankroll. Overridden by the verified on-chain CLOB balance when available. Starting value is set at bot launch.">i</i></div>
+      <div class="card-title">Portfolio <i class="info" data-tip="Total portfolio value = Cash (CLOB) + open positions at live market price. This is the real bankroll including unrealized gains/losses.">i</i></div>
       <div class="metric-val" id="m-bankroll">—</div>
       <div class="metric-sub" id="m-bankroll-sub">Starting: —</div>
-      <div id="m-onchain" class="metric-sub" style="margin-top:.4rem;"></div>
+      <div id="m-bankroll-breakdown" class="metric-sub" style="margin-top:.25rem;"></div>
+      <div id="m-onchain" class="metric-sub" style="margin-top:.25rem;"></div>
     </div>
 
     <div class="card card-body">
-      <div class="card-title">P &amp; L <i class="info" data-tip="Total profit/loss since bot start. Computed from resolved positions only — paper bankroll deductions for open trades are not counted here.">i</i></div>
+      <div class="card-title">P &amp; L <i class="info" data-tip="Portfolio P&L = (Cash + open positions at current price) − starting bankroll. Includes unrealized gains on open positions.">i</i></div>
       <div class="metric-val" id="m-pnl">—</div>
       <div class="metric-sub" id="m-return">Return: —</div>
+      <div class="metric-sub" id="m-pnl-unrealized" style="margin-top:.2rem;"></div>
     </div>
 
     <div class="card card-body">
@@ -385,14 +387,14 @@
     <!-- Active Positions -->
     <div class="card">
       <div class="card-header">
-        <span class="card-title">Active Positions <i class="info tip-below" data-tip="Open bets waiting for market resolution. Entry = price paid per share. EV = expected value at time of entry. These positions will be settled automatically when markets close.">i</i></span>
+        <span class="card-title">Active Positions <i class="info tip-below" data-tip="Open bets waiting for market resolution. Entry = price paid per share. Current = live CLOB midpoint. Unreal = unrealized P&L at current price. EV at entry.">i</i></span>
         <span id="pos-count" class="badge badge-blue" style="display:none">0</span>
       </div>
       <div class="tbl-wrap">
         <table>
-          <thead><tr><th>Market</th><th>Side</th><th>Entry</th><th>Stake</th><th>EV</th><th>Mode</th></tr></thead>
+          <thead><tr><th>Market</th><th>Side</th><th>Entry</th><th>Current</th><th>Unreal P&amp;L</th><th>Stake</th><th>EV</th><th>Mode</th></tr></thead>
           <tbody id="pos-body">
-            <tr class="empty-row"><td colspan="6">No open positions</td></tr>
+            <tr class="empty-row"><td colspan="8">No open positions</td></tr>
           </tbody>
         </table>
       </div>
@@ -523,19 +525,33 @@ async function loadMetrics() {
   try {
     const d = await fetch('/api/metrics').then(r => r.json());
     if (d.error) return;
-    const starting = parseFloat(d.starting_bankroll || 20);
-    const current  = parseFloat(d.current_bankroll  || starting);
-    const pnl      = parseFloat(d.total_pnl         || 0);
-    const ret      = parseFloat(d.return_pct         || 0);
-    const dd       = parseFloat(d.drawdown_pct       || 0);
-    const peak     = parseFloat(d.peak_bankroll      || starting);
+    const starting   = parseFloat(d.starting_bankroll || 20);
+    const cash       = parseFloat(d.cash_balance      || d.current_bankroll || starting);
+    const posValue   = parseFloat(d.position_value    || 0);
+    const portfolio  = parseFloat(d.portfolio_value   || cash);
+    const pnl        = parseFloat(d.portfolio_pnl     || d.total_pnl || 0);
+    const ret        = parseFloat(d.portfolio_return_pct || d.return_pct || 0);
+    const dd         = parseFloat(d.drawdown_pct       || 0);
+    const peak       = parseFloat(d.peak_bankroll      || starting);
 
-    $('m-bankroll').textContent    = fmt(current);
+    $('m-bankroll').textContent    = fmt(portfolio);
     $('m-bankroll-sub').textContent = `Starting: ${fmt(starting)}  ·  Peak: ${fmt(peak)}`;
+    const breakdownEl = $('m-bankroll-breakdown');
+    if (posValue > 0) {
+      breakdownEl.innerHTML = `<span style="color:var(--muted2);font-size:.67rem">Cash ${fmt(cash)} · Positions ${fmt(posValue)}</span>`;
+    } else {
+      breakdownEl.innerHTML = '';
+    }
 
     $('m-pnl').className = 'metric-val ' + cls(pnl);
     $('m-pnl').textContent = sign(pnl) + fmt(pnl);
     $('m-return').innerHTML = `Return: <b class="${cls(ret)}">${sign(ret)}${pct(ret)}</b>`;
+    if (posValue > 0) {
+      const unrealPnl = posValue - (portfolio - cash - (cash - starting) < 0 ? 0 : 0); // simplify: show pos value delta
+      $('m-pnl-unrealized').innerHTML = `<span style="color:var(--muted2);font-size:.67rem">Unrealized in positions: ${fmt(posValue)}</span>`;
+    } else {
+      $('m-pnl-unrealized').innerHTML = '';
+    }
 
     $('m-trades').textContent  = d.total_trades ?? 0;
     $('m-positions').textContent = `Open: ${d.active_positions_count ?? 0} · Resolved: ${d.total_trades ?? 0}`;
@@ -637,14 +653,9 @@ async function loadBalance() {
   try {
     const d = await fetch('/api/balance/real').then(r => r.json());
     if (d.error || d.total_real_usdc == null) return;
-    const parts = [];
-    if (d.clob_usdc   != null) parts.push(`CLOB $${d.clob_usdc}`);
-    if (d.wallet_usdc != null && d.wallet_usdc > 0) parts.push(`Wallet $${d.wallet_usdc}`);
+    // Show on-chain cash verification (do NOT override bankroll — it includes positions)
     $('m-onchain').innerHTML =
-      `<span style="color:var(--green);font-size:.7rem">✓ On-chain: $${parseFloat(d.total_real_usdc).toFixed(4)}</span>` +
-      (parts.length ? `<br><span style="color:var(--muted2);font-size:.67rem">${parts.join(' · ')}</span>` : '');
-    // Also override bankroll
-    $('m-bankroll').textContent = '$' + parseFloat(d.total_real_usdc).toFixed(4);
+      `<span style="color:var(--green);font-size:.67rem">✓ On-chain cash: $${parseFloat(d.total_real_usdc).toFixed(4)}</span>`;
   } catch(e) {}
 }
 
@@ -684,20 +695,34 @@ async function loadPositions() {
     const body = $('pos-body');
     const cnt  = $('pos-count');
     if (!d.positions?.length) {
-      body.innerHTML = '<tr class="empty-row"><td colspan="6">No open positions</td></tr>';
+      body.innerHTML = '<tr class="empty-row"><td colspan="8">No open positions</td></tr>';
       cnt.style.display = 'none';
       return;
     }
     cnt.textContent = d.positions.length;
     cnt.style.display = '';
-    body.innerHTML = d.positions.map(p => `<tr>
-      <td class="td-trunc" title="${p.question}">${p.question}</td>
-      <td><span class="badge badge-${p.side.toLowerCase()}">${p.side}</span></td>
-      <td class="td-mono">${parseFloat(p.price).toFixed(3)}</td>
-      <td>${fmt(p.stake_usd)}</td>
-      <td class="${cls(p.ev)}">${ev2pct(p.ev)}</td>
-      <td><span class="badge ${p.paper ? 'badge-paper' : 'badge-live'}">${p.paper ? 'paper' : 'live'}</span></td>
-    </tr>`).join('');
+    body.innerHTML = d.positions.map(p => {
+      const curr    = p.current_price != null ? parseFloat(p.current_price) : null;
+      const entry   = parseFloat(p.price);
+      const unreal  = p.unrealized_pnl != null ? parseFloat(p.unrealized_pnl) : null;
+      const priceDiff = curr != null ? curr - entry : 0;
+      const currDisp = curr != null
+        ? `<span class="${priceDiff >= 0 ? 'pos' : 'neg'}">${curr.toFixed(3)}</span>`
+        : '<span class="td-muted">—</span>';
+      const unrealDisp = unreal != null
+        ? `<span class="${cls(unreal)}">${sign(unreal)}${fmt(unreal)}</span>`
+        : '<span class="td-muted">—</span>';
+      return `<tr>
+        <td class="td-trunc" title="${p.question}">${p.question}</td>
+        <td><span class="badge badge-${p.side.toLowerCase()}">${p.side}</span></td>
+        <td class="td-mono">${entry.toFixed(3)}</td>
+        <td class="td-mono">${currDisp}</td>
+        <td class="td-mono">${unrealDisp}</td>
+        <td>${fmt(p.stake_usd)}</td>
+        <td class="${cls(p.ev)}">${ev2pct(p.ev)}</td>
+        <td><span class="badge ${p.paper ? 'badge-paper' : 'badge-live'}">${p.paper ? 'paper' : 'live'}</span></td>
+      </tr>`;
+    }).join('');
   } catch(e) {}
 }
 
