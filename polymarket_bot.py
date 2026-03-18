@@ -77,16 +77,17 @@ CHAIN_ID     = 137   # Polygon mainnet
 
 # Proxy wallet — set FUNDER_ADDRESS in .env to enable live orders.
 # This is the address of the Polymarket proxy wallet that holds USDC.
-# Find yours via: the factory at 0xaB45c5A4B0c941a2F231C04C3f49182e1A254052 selector 0x74e861d6
+# Find yours via: call getPolyProxyWalletAddress(your_eoa) on the CTFExchange contract
+# CTFExchange: 0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E (selector 0xedef7d8e)
 FUNDER_ADDRESS = os.environ.get("FUNDER_ADDRESS", "")
 
 # Risk limits
 EV_THRESHOLD      = 0.06    # minimum EV to place a bet
 MAX_STAKE_USD     = 2.00    # absolute max bet size in USD
-MIN_STAKE_USD     = 0.50    # minimum order size
+MIN_STAKE_USD     = 0.25    # minimum order size
 MAX_DRAWDOWN_PCT  = 30.0    # kill switch: stop trading if down this % from peak
 KELLY_FRACTION    = 0.20    # conservative fractional Kelly
-MAX_MARKETS_SCAN  = 50      # max markets to evaluate per run
+MAX_MARKETS_SCAN  = 200     # max markets to evaluate per run
 MIN_VOLUME_USD    = 20_000  # skip thin markets
 SLIPPAGE_CAP_PCT  = 2.0     # skip if LMSR price impact > 2%
 
@@ -296,14 +297,14 @@ def fetch_live_markets(limit: int = MAX_MARKETS_SCAN) -> List[Dict]:
                 "active":    "true",
                 "closed":    "false",
                 "limit":     limit,
-                "order":     "volume",
+                "order":     "volumeNum",
                 "ascending": "false",
             },
             timeout=15,
         )
         resp.raise_for_status()
         markets = resp.json()
-        markets = [m for m in markets if float(m.get("volume", 0)) >= MIN_VOLUME_USD]
+        markets = [m for m in markets if float(m.get("volumeNum", m.get("volume", 0))) >= MIN_VOLUME_USD]
         log.info(f"Fetched {len(markets)} live markets")
         return markets
     except Exception as e:
@@ -797,6 +798,40 @@ def run_scan(client: Optional["ClobClient"], state: BotState, paper: bool) -> No
         "duration_sec":         duration_sec,
         "paper":                paper,
     })
+
+    # Daily summary at midnight UTC (within one scan window)
+    now_utc = datetime.now(timezone.utc)
+    if now_utc.hour == 0 and now_utc.minute < 6:
+        try:
+            today = now_utc.date().isoformat()
+            trades_today, pnl_today, signals_today, scans_today = 0, 0.0, 0, 0
+            with open(LOG_FILE) as f:
+                for line in f:
+                    try:
+                        ev = json.loads(line)
+                        if ev.get("ts", "").startswith(today):
+                            if ev.get("event") == "order_placed":
+                                trades_today += 1
+                            elif ev.get("event") == "position_resolved":
+                                pnl_today += ev.get("data", {}).get("pnl", 0)
+                            elif ev.get("event") == "signal":
+                                signals_today += 1
+                            elif ev.get("event") == "scan_complete":
+                                scans_today += 1
+                    except Exception:
+                        pass
+            audit("daily_summary", {
+                "date":             today,
+                "trades_today":     trades_today,
+                "pnl_today":        round(pnl_today, 4),
+                "scans_today":      scans_today,
+                "signals_today":    signals_today,
+                "bankroll":         state.current_bankroll,
+                "paper":            paper,
+            })
+            log.info(f"  [daily] {today}: {trades_today} trades | PnL ${pnl_today:+.2f} | {signals_today} signals | bankroll ${state.current_bankroll:.2f}")
+        except Exception as e:
+            log.debug(f"Daily summary failed: {e}")
 
     log.info(
         f"\n  Bankroll: ${state.current_bankroll:.2f} | "
