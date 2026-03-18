@@ -136,6 +136,29 @@ def compute_metrics(state: Dict, log_entries: List[Dict]) -> Dict:
     current  = state.get("current_bankroll",  0)
     peak     = state.get("peak_bankroll",      current)
 
+    # Live position value from CLOB midpoints
+    active_pos = state.get("active_positions", {})
+    position_value = 0.0
+    for mid, pos in active_pos.items():
+        try:
+            token_id   = pos.get("token_id", "")
+            entry_price = pos.get("price", 0)
+            stake      = pos.get("stake", 0)
+            if token_id and entry_price > 0:
+                r = requests.get("https://clob.polymarket.com/midpoint",
+                                 params={"token_id": token_id}, timeout=5)
+                curr_price = float(r.json().get("mid", entry_price))
+            else:
+                curr_price = entry_price
+            shares = pos.get("shares") or (math.ceil(stake / entry_price) if entry_price > 0 else 0)
+            position_value += shares * curr_price
+        except Exception:
+            position_value += pos.get("stake", 0)  # fallback: use entry cost
+
+    portfolio_value  = current + position_value
+    portfolio_pnl    = portfolio_value - starting
+    portfolio_return = (portfolio_pnl / starting * 100) if starting > 0 else 0
+
     total_pnl    = current - starting
     return_pct   = (total_pnl / starting * 100) if starting > 0 else 0
     drawdown_pct = ((peak - current) / peak * 100) if peak > 0 else 0
@@ -170,6 +193,11 @@ def compute_metrics(state: Dict, log_entries: List[Dict]) -> Dict:
         "avg_stake_usd":        round(avg_stake, 2),
         "kill_switch_triggered": kill_triggered,
         "uptime":               uptime_str,
+        "position_value":       round(position_value, 2),
+        "portfolio_value":      round(portfolio_value, 2),
+        "portfolio_pnl":        round(portfolio_pnl, 2),
+        "portfolio_return_pct": round(portfolio_return, 2),
+        "cash_balance":         round(current, 2),
     }
 
 
@@ -261,21 +289,35 @@ def positions():
     state = read_state()
     active = state.get("active_positions", {})
 
-    return {
-        "count":     len(active),
-        "positions": [
-            {
-                "market_id": mid,
-                "question":  pos.get("question", "?")[:60],
-                "side":      pos.get("side"),
-                "price":     round(pos.get("price", 0), 3),
-                "stake_usd": round(pos.get("stake", 0), 2),
-                "ev":        round(pos.get("ev", 0), 4),
-                "paper":     pos.get("paper", True),
-            }
-            for mid, pos in active.items()
-        ],
-    }
+    rows = []
+    for mid, pos in active.items():
+        entry = pos.get("price", 0)
+        stake = pos.get("stake", 0)
+        token_id = pos.get("token_id", "")
+        # Fetch live midpoint
+        curr_price = entry
+        try:
+            if token_id:
+                r = requests.get("https://clob.polymarket.com/midpoint",
+                                 params={"token_id": token_id}, timeout=5)
+                curr_price = float(r.json().get("mid", entry))
+        except Exception:
+            pass
+        shares = pos.get("shares") or (math.ceil(stake / entry) if entry > 0 else 0)
+        unrealized_pnl = shares * (curr_price - entry)
+        rows.append({
+            "market_id":      mid,
+            "question":       pos.get("question", "?")[:60],
+            "side":           pos.get("side"),
+            "price":          round(entry, 3),
+            "current_price":  round(curr_price, 3),
+            "shares":         round(shares, 4),
+            "unrealized_pnl": round(unrealized_pnl, 4),
+            "stake_usd":      round(stake, 2),
+            "ev":             round(pos.get("ev", 0), 4),
+            "paper":          pos.get("paper", True),
+        })
+    return {"count": len(rows), "positions": rows}
 
 
 @app.get("/log", tags=["Bot"], dependencies=[Depends(check_auth)])

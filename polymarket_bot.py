@@ -39,6 +39,7 @@ import sys
 import time
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, List, Optional
 
 import requests
@@ -422,8 +423,13 @@ def submit_order(
         return {"status": "error", "reason": "clob_unavailable"}
 
     try:
-        # size must be in SHARES (not USD): shares = ceil(size_usd / price)
-        shares = math.ceil(size_usd / price)
+        # size must be in SHARES (not USD): minimum 5 shares on Polymarket
+        MIN_POLY_SHARES = 5
+        shares = max(math.ceil(size_usd / price), MIN_POLY_SHARES)
+        actual_cost = shares * price
+        if actual_cost > size_usd * 3:
+            log.warning(f"  [!] Skipping order: min 5-share cost ${actual_cost:.2f} is >3x Kelly stake ${size_usd:.2f}")
+            return {"status": "error", "reason": f"min_shares_cost_too_high (${actual_cost:.2f} vs ${size_usd:.2f})"}
         order_args   = OrderArgs(token_id=token_id, price=round(price, 4),
                                  size=shares, side=side_const)
         signed_order = client.create_order(order_args)
@@ -517,8 +523,8 @@ def run_scan(client: Optional["ClobClient"], state: BotState, paper: bool) -> No
 
     # Probability band filter: evaluate mid-prob markets first (bigger Kelly stakes),
     # then long shots only if Bucket A yields < 3 signals.
-    BUCKET_A_CAP = 30    # max Bucket A markets to evaluate per scan
-    BUCKET_B_CAP = 20    # max Bucket B markets to evaluate per scan
+    BUCKET_A_CAP = 100   # max Bucket A markets to evaluate per scan
+    BUCKET_B_CAP = 50    # max Bucket B markets to evaluate per scan
     LONGSHOT_STAKE_CAP = 0.50  # cap stake on long shots regardless of Kelly
 
     def _get_last_price(m: Dict) -> float:
@@ -528,7 +534,35 @@ def run_scan(client: Optional["ClobClient"], state: BotState, paper: bool) -> No
             return 0.5
 
     bucket_a = [m for m in raw_markets if 0.20 <= _get_last_price(m) <= 0.80][:BUCKET_A_CAP]
-    bucket_b = [m for m in raw_markets if m not in bucket_a][:BUCKET_B_CAP]
+    bucket_b = [
+        m for m in raw_markets
+        if m not in bucket_a and 0.05 <= _get_last_price(m) <= 0.95
+    ][:BUCKET_B_CAP]
+
+    # ── Parallel prefetch: price histories + manifold cache warm ──
+    def _token_ids(m):
+        try:
+            ids = m.get("clobTokenIds", "[]")
+            if isinstance(ids, str):
+                ids = json.loads(ids)
+            return ids[0] if ids else ""
+        except Exception:
+            return ""
+
+    _all_prefetch = bucket_a + bucket_b
+    _token_map    = {m.get("id", ""): _token_ids(m) for m in _all_prefetch}
+    _question_map = {m.get("id", ""): m.get("question", "")[:65] for m in _all_prefetch}
+
+    history_cache: Dict[str, List] = {}
+    with ThreadPoolExecutor(max_workers=30) as _ex:
+        _futs = {_ex.submit(fetch_price_history, tid): (mid, tid)
+                 for mid, tid in _token_map.items() if tid}
+        for _f in as_completed(_futs):
+            _mid, _tid = _futs[_f]
+            history_cache[_tid] = _f.result() or []
+
+    with ThreadPoolExecutor(max_workers=15) as _ex:
+        list(_ex.map(fetch_manifold_price, _question_map.values()))
 
     signals_from_a = 0
     active_longshot_cap = False
@@ -577,7 +611,7 @@ def run_scan(client: Optional["ClobClient"], state: BotState, paper: bool) -> No
             yes_token_id, no_token_id = "", ""
             yes_token, no_token = None, None
 
-        history = fetch_price_history(yes_token_id)
+        history = history_cache.get(yes_token_id, [])
         if len(history) < MIN_HISTORY_POINTS:
             log.info(f"  {question[:48]:48s}  ✗ not enough price history ({len(history)} pts, need {MIN_HISTORY_POINTS})")
             n_skipped_history += 1
@@ -693,8 +727,10 @@ def run_scan(client: Optional["ClobClient"], state: BotState, paper: bool) -> No
         # Long-shot stake cap: Bucket B markets capped at $0.50
         if not in_bucket_a:
             stake = min(stake, LONGSHOT_STAKE_CAP)
-        if stake < MIN_STAKE_USD:
-            log.info(f"  Skip (Kelly stake ${stake:.2f} < min ${MIN_STAKE_USD}): {question[:40]}")
+        min_order_cost = 5 * bet_price  # Polymarket minimum: 5 shares
+        effective_min  = max(MIN_STAKE_USD, min_order_cost / 3)  # allow up to 3x Kelly for min shares
+        if stake < effective_min and min_order_cost > stake * 3:
+            log.info(f"  Skip (Kelly ${stake:.2f} too small: 5-share min costs ${min_order_cost:.2f}): {question[:40]}")
             scan_market_log.append({
                 "market_id": market_id, "question": question, "volume": volume,
                 "price": round(current_price, 4), "model_p": round(model_p, 4),
@@ -748,12 +784,15 @@ def run_scan(client: Optional["ClobClient"], state: BotState, paper: bool) -> No
 
         if result.get("status") in ("paper", "submitted"):
             state.total_trades += 1
+            _shares = math.ceil(stake / bet_price) if bet_price > 0 else 0
+            _real_cost = round(_shares * bet_price, 6)
             state.active_positions[market_id] = {
                 "question":  question,
                 "side":      bet_side,
                 "token_id":  token_id,
                 "price":     bet_price,
-                "stake":     stake,
+                "shares":    _shares,
+                "stake":     _real_cost,
                 "ev":        ev,
                 "paper":     paper,
             }
