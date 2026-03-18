@@ -86,8 +86,8 @@ EV_THRESHOLD      = 0.06    # minimum EV to place a bet
 MAX_STAKE_USD     = 2.00    # absolute max bet size in USD
 MIN_STAKE_USD     = 0.25    # minimum order size
 MAX_DRAWDOWN_PCT  = 30.0    # kill switch: stop trading if down this % from peak
-KELLY_FRACTION    = 0.20    # conservative fractional Kelly
-MAX_MARKETS_SCAN  = 200     # max markets to evaluate per run
+KELLY_FRACTION    = 0.35    # conservative fractional Kelly
+MAX_MARKETS_SCAN  = 1000    # max markets to evaluate per run
 MIN_VOLUME_USD    = 20_000  # skip thin markets
 SLIPPAGE_CAP_PCT  = 2.0     # skip if LMSR price impact > 2%
 
@@ -515,7 +515,32 @@ def run_scan(client: Optional["ClobClient"], state: BotState, paper: bool) -> No
     n_manifold_rejected = 0
     scan_market_log: List[Dict] = []   # per-market data written to scan_markets.json
 
-    for raw in raw_markets:
+    # Probability band filter: evaluate mid-prob markets first (bigger Kelly stakes),
+    # then long shots only if Bucket A yields < 3 signals.
+    BUCKET_A_CAP = 30    # max Bucket A markets to evaluate per scan
+    BUCKET_B_CAP = 20    # max Bucket B markets to evaluate per scan
+    LONGSHOT_STAKE_CAP = 0.50  # cap stake on long shots regardless of Kelly
+
+    def _get_last_price(m: Dict) -> float:
+        try:
+            return float(m.get("lastTradePrice") or m.get("outcomePrices", "[0.5]").strip("[]").split(",")[0])
+        except Exception:
+            return 0.5
+
+    bucket_a = [m for m in raw_markets if 0.20 <= _get_last_price(m) <= 0.80][:BUCKET_A_CAP]
+    bucket_b = [m for m in raw_markets if m not in bucket_a][:BUCKET_B_CAP]
+
+    signals_from_a = 0
+    active_longshot_cap = False
+
+    def _markets_to_scan():
+        nonlocal active_longshot_cap
+        yield from bucket_a
+        if signals_from_a < 3:
+            active_longshot_cap = True
+            yield from bucket_b
+
+    for raw in _markets_to_scan():
         market_id = raw.get("id", "")
         question  = raw.get("question", "?")[:65]
         volume    = float(raw.get("volume", 0))
@@ -578,6 +603,7 @@ def run_scan(client: Optional["ClobClient"], state: BotState, paper: bool) -> No
             continue
 
         n_evaluated += 1
+        in_bucket_a = raw in bucket_a
 
         # FIX 3: MACD with hourly-tuned alphas
         model_p = model_probability(history)
@@ -664,6 +690,9 @@ def run_scan(client: Optional["ClobClient"], state: BotState, paper: bool) -> No
         # Slippage check
         liquidity = float(raw.get("liquidity", 100))
         stake     = kelly_size(used_p, bet_price, state.current_bankroll)
+        # Long-shot stake cap: Bucket B markets capped at $0.50
+        if not in_bucket_a:
+            stake = min(stake, LONGSHOT_STAKE_CAP)
         if stake < MIN_STAKE_USD:
             log.info(f"  Skip (Kelly stake ${stake:.2f} < min ${MIN_STAKE_USD}): {question[:40]}")
             scan_market_log.append({
@@ -692,9 +721,12 @@ def run_scan(client: Optional["ClobClient"], state: BotState, paper: bool) -> No
             continue
 
         signals_found += 1
+        if in_bucket_a:
+            signals_from_a += 1
         token_id = token.get("token_id", "") if token else ""
 
-        log.info(f"\n  ✦ SIGNAL FOUND")
+        bucket_label = "A (mid-prob)" if in_bucket_a else "B (long-shot)"
+        log.info(f"\n  ✦ SIGNAL FOUND  [{bucket_label}]")
         log.info(f"    Market    : {question}")
         log.info(f"    Side      : {bet_side}")
         log.info(f"    Price     : {bet_price:.3f}  |  Model p: {used_p:.3f}  |  EV: {ev:.4f}")
