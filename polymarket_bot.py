@@ -67,7 +67,7 @@ except ImportError:
     print("[!] py-clob-client not found. Install with: pip install py-clob-client")
     print("    Running in paper-mode only until installed.\n")
 
-from signal_manifold import fetch_manifold_price
+from signal_manifold import fetch_manifold_price, _cache_ratio as _manifold_cache_ratio
 
 # ──────────────────────────────────────────────────────────────────
 # CONFIG
@@ -495,14 +495,43 @@ def sync_real_balance(state: BotState, clob_client: Optional["ClobClient"] = Non
         bal  = clob_client.get_balance_allowance(BalanceAllowanceParams(
             asset_type=AssetType.COLLATERAL, signature_type=1
         ))
-        real = float(bal.get("balance", 0)) / 1_000_000
-        if real <= 0:
+        clob_cash = float(bal.get("balance", 0)) / 1_000_000
+        if clob_cash < 0:
             return
-        old  = state.current_bankroll
-        state.current_bankroll = real
-        state.peak_bankroll    = max(state.peak_bankroll, real)
-        log.info(f"  [✓] Balance synced from CLOB: ${real:.4f}  (was ${old:.4f})")
-        audit("balance_sync", {"real": real, "was_tracked": old})
+
+        # Sum up position values using midpoint prices
+        pos_value = 0.0
+        for mid, pos in state.active_positions.items():
+            token_id = pos.get("token_id", "")
+            shares   = pos.get("shares", 0)
+            fallback = pos.get("price", 0)
+            if shares <= 0:
+                continue
+            try:
+                r = requests.get(
+                    "https://clob.polymarket.com/midpoint",
+                    params={"token_id": token_id},
+                    timeout=5,
+                )
+                mid_price = float(r.json().get("mid", fallback))
+            except Exception:
+                mid_price = fallback
+            pos_value += shares * mid_price
+
+        portfolio = clob_cash + pos_value
+        old = state.current_bankroll
+        state.current_bankroll = portfolio
+        state.peak_bankroll    = max(state.peak_bankroll, portfolio)
+        log.info(
+            f"  [✓] Balance synced: cash=${clob_cash:.4f}  "
+            f"positions=${pos_value:.4f}  portfolio=${portfolio:.4f}  (was ${old:.4f})"
+        )
+        audit("balance_sync", {
+            "clob_cash": clob_cash,
+            "pos_value": pos_value,
+            "portfolio": portfolio,
+            "was_tracked": old,
+        })
     except Exception as e:
         log.debug(f"  Balance sync skipped ({e}) — using tracked value")
 
@@ -691,7 +720,13 @@ def run_scan(client: Optional["ClobClient"], state: BotState, paper: bool) -> No
                     f"  Manifold: {manifold_p:.3f} | Poly: {current_price:.3f} "
                     f"| diff: {manifold_p - current_price:+.3f}"
                 )
-                model_p = 0.4 * model_p + 0.6 * manifold_p
+                _mkey = question[:60].lower()
+                _mratio = _manifold_cache_ratio.get(_mkey, 0.0)
+                if _mratio >= 0.65:
+                    _mw = 0.60  # high confidence — 60% Manifold
+                else:
+                    _mw = 0.30  # moderate confidence — 30% Manifold
+                model_p = (1 - _mw) * model_p + _mw * manifold_p
                 model_p = float(np.clip(model_p, 0.02, 0.98))
         else:
             log.info(f"  Manifold: no match for '{question[:40]}'")
