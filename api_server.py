@@ -161,7 +161,7 @@ def compute_metrics(state: Dict, log_entries: List[Dict]) -> Dict:
 
     total_pnl    = current - starting
     return_pct   = (total_pnl / starting * 100) if starting > 0 else 0
-    drawdown_pct = ((peak - current) / peak * 100) if peak > 0 else 0
+    drawdown_pct = ((peak - portfolio_value) / peak * 100) if peak > 0 else 0
 
     # Win/loss from active_positions (paper) or log
     # We approximate from total_pnl and total_trades

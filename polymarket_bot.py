@@ -85,7 +85,7 @@ FUNDER_ADDRESS = os.environ.get("FUNDER_ADDRESS", "")
 # Risk limits
 EV_THRESHOLD      = 0.06    # minimum EV to place a bet
 MAX_STAKE_USD     = 2.00    # absolute max bet size in USD
-MIN_STAKE_USD     = 0.25    # minimum order size
+MIN_STAKE_USD     = 1.00    # Polymarket minimum order is $1 USDC
 MAX_DRAWDOWN_PCT  = 30.0    # kill switch: stop trading if down this % from peak
 KELLY_FRACTION    = 0.35    # conservative fractional Kelly
 MAX_MARKETS_SCAN  = 1000    # max markets to evaluate per run
@@ -425,16 +425,36 @@ def submit_order(
     try:
         # size must be in SHARES (not USD): minimum 5 shares on Polymarket
         MIN_POLY_SHARES = 5
-        shares = max(math.ceil(size_usd / price), MIN_POLY_SHARES)
+        MIN_ORDER_USD   = 1.00   # Polymarket minimum $1 per order
+        shares = max(math.ceil(size_usd / price), MIN_POLY_SHARES, math.ceil(MIN_ORDER_USD / price))
         actual_cost = shares * price
-        if actual_cost > size_usd * 3:
-            log.warning(f"  [!] Skipping order: min 5-share cost ${actual_cost:.2f} is >3x Kelly stake ${size_usd:.2f}")
-            return {"status": "error", "reason": f"min_shares_cost_too_high (${actual_cost:.2f} vs ${size_usd:.2f})"}
+        if actual_cost > max(size_usd * 3, MIN_ORDER_USD * 1.5):
+            log.warning(f"  [!] Skipping order: min-order cost ${actual_cost:.2f} is >3x Kelly ${size_usd:.2f}")
+            return {"status": "error", "reason": f"min_order_cost_too_high (${actual_cost:.2f} vs ${size_usd:.2f})"}
         order_args   = OrderArgs(token_id=token_id, price=round(price, 4),
                                  size=shares, side=side_const)
         signed_order = client.create_order(order_args)
         resp         = client.post_order(signed_order)
         log.info(f"  [LIVE] Order submitted: {resp}")
+
+        # Confirm fill: wait 4s then check — cancel if not matched (avoids ghost positions)
+        order_id = (resp or {}).get("orderID") or (resp or {}).get("id", "")
+        if order_id:
+            time.sleep(4)
+            try:
+                status = client.get_order(order_id)
+                matched = float(status.get("size_matched", 0))
+                remaining = float(status.get("size_remaining", status.get("original_size", shares)))
+                if matched < 1:
+                    client.cancel(order_id)
+                    log.warning(f"  [!] Order {order_id[:12]} unmatched (0 shares filled) — cancelled")
+                    return {"status": "error", "reason": "order_unmatched_cancelled"}
+                log.info(f"  [✓] Confirmed {matched} shares filled (of {shares} ordered)")
+                if remaining > 0:
+                    client.cancel(order_id)  # cancel any remaining partial
+            except Exception as ce:
+                log.debug(f"  Order confirm check failed ({ce}) — assuming filled")
+
         return {"status": "submitted", "response": str(resp)}
     except Exception as e:
         log.error(f"  [!] Order failed: {e}")
@@ -727,10 +747,13 @@ def run_scan(client: Optional["ClobClient"], state: BotState, paper: bool) -> No
         # Long-shot stake cap: Bucket B markets capped at $0.50
         if not in_bucket_a:
             stake = min(stake, LONGSHOT_STAKE_CAP)
-        min_order_cost = 5 * bet_price  # Polymarket minimum: 5 shares
-        effective_min  = max(MIN_STAKE_USD, min_order_cost / 3)  # allow up to 3x Kelly for min shares
-        if stake < effective_min and min_order_cost > stake * 3:
-            log.info(f"  Skip (Kelly ${stake:.2f} too small: 5-share min costs ${min_order_cost:.2f}): {question[:40]}")
+        min_order_cost = max(5 * bet_price, 1.00)  # Polymarket min: 5 shares AND $1
+        if stake < min_order_cost:
+            if min_order_cost <= stake * 4:  # allow up to 4x Kelly to meet minimum
+                log.info(f"  Bumping stake ${stake:.2f} → ${min_order_cost:.2f} to meet $1 minimum: {question[:40]}")
+                stake = min_order_cost
+            else:
+                log.info(f"  Skip (min order ${min_order_cost:.2f} is >4x Kelly ${stake:.2f}): {question[:40]}")
             scan_market_log.append({
                 "market_id": market_id, "question": question, "volume": volume,
                 "price": round(current_price, 4), "model_p": round(model_p, 4),
@@ -779,8 +802,9 @@ def run_scan(client: Optional["ClobClient"], state: BotState, paper: bool) -> No
             paper    = paper,
         )
 
-        # Always skip this market next scan regardless of order outcome
-        state.traded_markets.append(market_id)
+        # Always blacklist this market to avoid re-evaluation (shows as Attempted in dashboard)
+        if market_id not in state.traded_markets:
+            state.traded_markets.append(market_id)
 
         if result.get("status") in ("paper", "submitted"):
             state.total_trades += 1
