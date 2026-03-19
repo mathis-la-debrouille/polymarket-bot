@@ -101,14 +101,21 @@ def check_auth(credentials: Optional[HTTPAuthorizationCredentials] = Depends(sec
 # ──────────────────────────────────────────────────────────────────
 # HELPERS
 # ──────────────────────────────────────────────────────────────────
+_LAST_GOOD_STATE: Dict = {}
+
 def read_state() -> Dict:
+    global _LAST_GOOD_STATE
     if not STATE_FILE.exists():
-        return {}
+        return _LAST_GOOD_STATE
     try:
         with open(STATE_FILE) as f:
-            return json.load(f)
+            data = json.load(f)
+        # Only update cache if we got a non-empty state with positions data
+        if data.get("total_trades", 0) > 0 or data.get("starting_bankroll", 0) > 0:
+            _LAST_GOOD_STATE = data
+        return _LAST_GOOD_STATE if _LAST_GOOD_STATE else data
     except Exception:
-        return {}
+        return _LAST_GOOD_STATE  # return last known good state on read error
 
 
 def read_log(n: int = 200) -> List[Dict]:

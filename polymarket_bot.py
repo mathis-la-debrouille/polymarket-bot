@@ -177,8 +177,11 @@ def save_state(state: BotState) -> None:
     # FIX 2: cap traded_markets at MAX_TRADED_MARKETS, drop oldest
     if len(state.traded_markets) > MAX_TRADED_MARKETS:
         state.traded_markets = state.traded_markets[-MAX_TRADED_MARKETS:]
-    with open(STATE_FILE, "w") as f:
+    # Atomic write: write to temp file then rename so api_server never reads a partial file
+    tmp = str(STATE_FILE) + ".tmp"
+    with open(tmp, "w") as f:
         json.dump(asdict(state), f, indent=2)
+    os.replace(tmp, STATE_FILE)
 
 
 # ──────────────────────────────────────────────────────────────────
