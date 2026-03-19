@@ -143,6 +143,7 @@ class BotState:
     active_positions:   Dict  = None   # market_id → {question, side, price, stake, ...}
     traded_markets:     List  = None   # market IDs already traded (avoid re-entry)
     resolved_positions: List  = None   # FIX 1: last 100 resolved positions
+    clob_cash:          float = 0.0    # last known on-chain USDC cash (excludes position value)
 
     def __post_init__(self):
         if self.active_positions is None:
@@ -160,6 +161,7 @@ def load_state(bankroll: float) -> BotState:
                 d = json.load(f)
             # resolved_positions may not exist in older state files
             d.setdefault("resolved_positions", [])
+            d.setdefault("clob_cash", None)  # may not exist in old state files
             state = BotState(**d)
             log.info(f"Resumed state: bankroll=${state.current_bankroll:.2f}, "
                      f"trades={state.total_trades}, pnl={state.total_pnl:+.2f}")
@@ -521,6 +523,7 @@ def sync_real_balance(state: BotState, clob_client: Optional["ClobClient"] = Non
         portfolio = clob_cash + pos_value
         old = state.current_bankroll
         state.current_bankroll = portfolio
+        state.clob_cash        = clob_cash
         state.peak_bankroll    = max(state.peak_bankroll, portfolio)
         log.info(
             f"  [✓] Balance synced: cash=${clob_cash:.4f}  "

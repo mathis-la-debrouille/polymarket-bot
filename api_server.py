@@ -155,9 +155,14 @@ def compute_metrics(state: Dict, log_entries: List[Dict]) -> Dict:
         except Exception:
             position_value += pos.get("stake", 0)  # fallback: use entry cost
 
-    portfolio_value  = current + position_value
+    # current_bankroll already = cash + positions (set by sync_real_balance)
+    # use it directly as portfolio; position_value is for display breakdown only
+    portfolio_value  = current
     portfolio_pnl    = portfolio_value - starting
     portfolio_return = (portfolio_pnl / starting * 100) if starting > 0 else 0
+    # cash_balance: use stored clob_cash if available, else derive it
+    _clob_cash       = state.get("clob_cash", None)
+    cash_display     = _clob_cash if _clob_cash is not None else max(0.0, current - position_value)
 
     total_pnl    = current - starting
     return_pct   = (total_pnl / starting * 100) if starting > 0 else 0
@@ -197,7 +202,7 @@ def compute_metrics(state: Dict, log_entries: List[Dict]) -> Dict:
         "portfolio_value":      round(portfolio_value, 2),
         "portfolio_pnl":        round(portfolio_pnl, 2),
         "portfolio_return_pct": round(portfolio_return, 2),
-        "cash_balance":         round(current, 2),
+        "cash_balance":         round(cash_display, 2),
     }
 
 
