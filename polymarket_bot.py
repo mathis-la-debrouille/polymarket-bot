@@ -68,6 +68,7 @@ except ImportError:
     print("    Running in paper-mode only until installed.\n")
 
 from signal_manifold import fetch_manifold_price, _cache_ratio as _manifold_cache_ratio
+from signal_metaculus import fetch_metaculus_price
 
 # ──────────────────────────────────────────────────────────────────
 # CONFIG
@@ -144,6 +145,7 @@ class BotState:
     traded_markets:     List  = None   # market IDs already traded (avoid re-entry)
     resolved_positions: List  = None   # FIX 1: last 100 resolved positions
     clob_cash:          float = 0.0    # last known on-chain USDC cash (excludes position value)
+    scans_since_sl_check: int = 0      # counter for stop-loss check frequency
 
     def __post_init__(self):
         if self.active_positions is None:
@@ -162,6 +164,7 @@ def load_state(bankroll: float) -> BotState:
             # resolved_positions may not exist in older state files
             d.setdefault("resolved_positions", [])
             d.setdefault("clob_cash", None)  # may not exist in old state files
+            d.setdefault("scans_since_sl_check", 0)
             state = BotState(**d)
             log.info(f"Resumed state: bankroll=${state.current_bankroll:.2f}, "
                      f"trades={state.total_trades}, pnl={state.total_pnl:+.2f}")
@@ -290,6 +293,103 @@ def resolve_positions(state: BotState) -> None:
         log.info(f"  Resolved {resolved_count} position(s) | net PnL: {net_pnl:+.2f}")
         save_state(state)
 
+
+
+
+# ──────────────────────────────────────────────────────────────────
+# STOP-LOSS CHECK
+# ──────────────────────────────────────────────────────────────────
+def check_stop_loss(state, clob_client) -> None:
+    """Check open positions for >30% loss; sell if edge is gone."""
+    state.scans_since_sl_check = getattr(state, 'scans_since_sl_check', 0) + 1
+    if state.scans_since_sl_check < 3:
+        return
+    state.scans_since_sl_check = 0
+
+    if not state.active_positions:
+        return
+
+    for mid, pos in list(state.active_positions.items()):
+        token_id    = pos.get("token_id", "")
+        shares      = pos.get("shares", 0)
+        entry_price = pos.get("price", 0)
+        question    = pos.get("question", "")
+        side        = pos.get("side", "YES")
+
+        if not token_id or shares <= 0 or entry_price <= 0:
+            continue
+
+        try:
+            r = requests.get("https://clob.polymarket.com/midpoint",
+                             params={"token_id": token_id}, timeout=5)
+            curr_price = float(r.json().get("mid", entry_price))
+        except Exception:
+            continue
+
+        entry_value   = shares * entry_price
+        current_value = shares * curr_price
+        loss_pct = (entry_value - current_value) / entry_value if entry_value > 0 else 0
+
+        if loss_pct <= 0.30:
+            continue
+
+        log.info(f"  [SL] {question[:50]} — loss {loss_pct:.0%}, re-evaluating edge…")
+
+        try:
+            history = fetch_price_history(token_id)
+            new_model_p = model_probability(history)
+            if new_model_p is None:
+                log.warning(f"  [SL] Could not get model_p for {question[:40]}, skipping")
+                continue
+            manifold_p  = fetch_manifold_price(question)
+            metaculus_p = fetch_metaculus_price(question)
+            sources = [("macd", new_model_p, 0.30)]
+            if manifold_p:
+                sources.append(("manifold", manifold_p, 0.40))
+            if metaculus_p:
+                sources.append(("metaculus", metaculus_p, 0.30))
+            total_w = sum(w for _, _, w in sources)
+            new_final_p = sum(p * w / total_w for _, p, w in sources)
+            bet_price = curr_price if side == "YES" else (1 - curr_price)
+            new_ev = (new_final_p / bet_price) - 1 if bet_price > 0 else 0
+        except Exception as e:
+            log.warning(f"  [SL] Could not re-evaluate {question[:40]}: {e}")
+            continue
+
+        original_ev = pos.get("ev", 0)
+
+        if new_ev < 0.03:
+            log.info(f"  [SL] Edge gone (new EV={new_ev:.1%}), submitting sell order…")
+            try:
+                sell_price   = max(0.01, curr_price - 0.01)
+                sell_side    = BUY if side == "NO" else SELL
+                order_args   = OrderArgs(token_id=token_id, price=round(sell_price, 4),
+                                         size=float(shares), side=sell_side)
+                signed_order = clob_client.create_order(order_args)
+                clob_client.post_order(signed_order)
+                audit("stop_loss_triggered", {
+                    "market_id":    mid,
+                    "question":     question,
+                    "entry_price":  entry_price,
+                    "current_price": curr_price,
+                    "loss_pct":     round(loss_pct, 4),
+                    "original_ev":  round(original_ev, 4),
+                    "new_ev":       round(new_ev, 4),
+                    "shares_sold":  shares,
+                })
+                del state.active_positions[mid]
+                save_state(state)
+                log.info(f"  [SL] Sold {shares} shares of {question[:40]}")
+            except Exception as e:
+                log.error(f"  [SL] Sell order failed: {e}")
+        else:
+            log.info(f"  [SL] Edge still holds (new EV={new_ev:.1%}), holding.")
+            audit("stop_loss_evaluated", {
+                "market_id": mid,
+                "question":  question,
+                "loss_pct":  round(loss_pct, 4),
+                "new_ev":    round(new_ev, 4),
+            })
 
 # ──────────────────────────────────────────────────────────────────
 # MARKET DATA
@@ -555,6 +655,7 @@ def run_scan(client: Optional["ClobClient"], state: BotState, paper: bool) -> No
 
     # FIX 1: resolve any positions before scanning new ones
     resolve_positions(state)
+    check_stop_loss(state, client)
 
     # Sync real balance
     sync_real_balance(state, clob_client=client)
@@ -694,6 +795,29 @@ def run_scan(client: Optional["ClobClient"], state: BotState, paper: bool) -> No
         n_evaluated += 1
         in_bucket_a = raw in bucket_a
 
+        # Resolution date scoring
+        end_date_str = raw.get("endDate") or raw.get("end_date_min") or ""
+        days_until = None
+        if end_date_str:
+            try:
+                from datetime import datetime as _dt, timezone as _tz
+                end_dt = _dt.fromisoformat(end_date_str.replace("Z", "+00:00"))
+                days_until = (end_dt - _dt.now(_tz.utc)).days
+            except Exception:
+                pass
+
+        if days_until is not None:
+            if days_until <= 30:
+                date_score = 1.5
+            elif days_until <= 90:
+                date_score = 1.0
+            else:
+                date_score = max(0.6, 1.0 - (days_until - 90) / 1000)
+        else:
+            date_score = 1.0
+
+        log.info(f"  endDate={end_date_str[:10] if end_date_str else 'N/A'}  days_until={days_until}  date_score={date_score:.2f}")
+
         # FIX 3: MACD with hourly-tuned alphas
         model_p = model_probability(history)
         if model_p is None:
@@ -706,7 +830,7 @@ def run_scan(client: Optional["ClobClient"], state: BotState, paper: bool) -> No
             })
             continue
 
-        # FIX 5: Manifold cross-platform signal
+        # FIX 5: Multi-source signal blending (Manifold + Metaculus)
         manifold_raw = fetch_manifold_price(question)
         manifold_p   = manifold_raw
         manifold_rejected = False
@@ -726,16 +850,30 @@ def run_scan(client: Optional["ClobClient"], state: BotState, paper: bool) -> No
                     f"  Manifold: {manifold_p:.3f} | Poly: {current_price:.3f} "
                     f"| diff: {manifold_p - current_price:+.3f}"
                 )
-                _mkey = question[:60].lower()
-                _mratio = _manifold_cache_ratio.get(_mkey, 0.0)
-                if _mratio >= 0.65:
-                    _mw = 0.60  # high confidence — 60% Manifold
-                else:
-                    _mw = 0.30  # moderate confidence — 30% Manifold
-                model_p = (1 - _mw) * model_p + _mw * manifold_p
-                model_p = float(np.clip(model_p, 0.02, 0.98))
         else:
             log.info(f"  Manifold: no match for '{question[:40]}'")
+
+        metaculus_p = fetch_metaculus_price(question)
+        if metaculus_p is not None:
+            log.info(f"  Metaculus: {metaculus_p:.3f}")
+        else:
+            log.info(f"  Metaculus: no match for '{question[:40]}'")
+
+        sources = [("macd", model_p, 0.30)]
+        if manifold_p is not None:
+            sources.append(("manifold", manifold_p, 0.40))
+        if metaculus_p is not None:
+            sources.append(("metaculus", metaculus_p, 0.30))
+
+        total_w = sum(w for _, _, w in sources)
+        final_model_p = sum(p * w / total_w for _, p, w in sources)
+        final_model_p = float(np.clip(final_model_p, 0.02, 0.98))
+
+        log.info("  Signal sources: " + ", ".join(
+            f"{name}={p:.3f}(w={w/total_w:.0%})" for name, p, w in sources
+        ))
+
+        model_p = final_model_p
 
         # FIX 4: correct binary EV formula
         ev_yes  = compute_ev(model_p,       current_price)
@@ -743,20 +881,24 @@ def run_scan(client: Optional["ClobClient"], state: BotState, paper: bool) -> No
         best_ev = max(ev_yes, ev_no)
         best_side = "YES" if ev_yes >= ev_no else "NO"
 
-        verdict = "✓ EDGE" if best_ev >= EV_THRESHOLD else f"✗ EV too low (need {EV_THRESHOLD:.0%})"
+        effective_ev_yes = ev_yes * date_score
+        effective_ev_no  = ev_no  * date_score
+        best_effective_ev = max(effective_ev_yes, effective_ev_no)
+
+        verdict = "✓ EDGE" if best_effective_ev >= EV_THRESHOLD else f"✗ EV too low (need {EV_THRESHOLD:.0%})"
         log.info(
             f"  {question[:48]:48s}  "
             f"price={current_price:.2f}  model={model_p:.2f}  "
-            f"EV={best_ev:+.3f}  {verdict}"
+            f"EV={best_ev:+.3f}  effEV={best_effective_ev:+.3f}  {verdict}"
         )
 
-        if ev_yes >= ev_no and ev_yes >= EV_THRESHOLD:
+        if effective_ev_yes >= effective_ev_no and effective_ev_yes >= EV_THRESHOLD:
             bet_side  = "YES"
             ev        = ev_yes
             bet_price = current_price
             token     = yes_token
             used_p    = model_p
-        elif ev_no > ev_yes and ev_no >= EV_THRESHOLD:
+        elif effective_ev_no > effective_ev_yes and effective_ev_no >= EV_THRESHOLD:
             bet_side  = "NO"
             ev        = ev_no
             bet_price = 1 - current_price
@@ -773,6 +915,9 @@ def run_scan(client: Optional["ClobClient"], state: BotState, paper: bool) -> No
                 "price": round(current_price, 4), "model_p": round(model_p, 4),
                 "manifold_p": round(manifold_p, 4) if manifold_p else None,
                 "ev": round(best_ev, 4), "best_side": best_side,
+                "endDate": end_date_str[:10] if end_date_str else None,
+                "days_until_resolution": days_until,
+                "date_score": round(date_score, 3),
                 "skip_reason": "ev_too_low",
                 "skip_detail": (
                     f"Best EV is {best_ev:.1%} on {best_side} — below the {EV_THRESHOLD:.0%} threshold. "
@@ -866,16 +1011,17 @@ def run_scan(client: Optional["ClobClient"], state: BotState, paper: bool) -> No
                 state.current_bankroll  = max(0.0, state.current_bankroll)
 
             audit("signal", {
-                "market_id":  market_id,
-                "question":   question,
-                "side":       bet_side,
-                "price":      bet_price,
-                "model_p":    used_p,
-                "manifold_p": manifold_p,
-                "ev":         ev,
-                "stake":      stake,
-                "token_id":   token_id,
-                "paper":      paper,
+                "market_id":   market_id,
+                "question":    question,
+                "side":        bet_side,
+                "price":       bet_price,
+                "model_p":     used_p,
+                "manifold_p":  manifold_p,
+                "metaculus_p": metaculus_p,
+                "ev":          ev,
+                "stake":       stake,
+                "token_id":    token_id,
+                "paper":       paper,
             })
             audit("order_placed", {
                 "market_id": market_id,
