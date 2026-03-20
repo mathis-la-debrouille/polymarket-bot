@@ -35,11 +35,11 @@ import json
 import logging
 import math
 import os
+import re
 import sys
 import time
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, List, Optional
 
 import requests
@@ -67,14 +67,15 @@ except ImportError:
     print("[!] py-clob-client not found. Install with: pip install py-clob-client")
     print("    Running in paper-mode only until installed.\n")
 
-from signal_manifold import fetch_manifold_price, _cache_ratio as _manifold_cache_ratio
 try:
-    from signal_updown import compute_updown_signal, is_updown_market
+    from signal_updown import (
+        compute_updown_signal, is_updown_market,
+        start_rtds_stream, check_spread_arb,
+    )
     UPDOWN_AVAILABLE = True
 except ImportError:
     UPDOWN_AVAILABLE = False
-    log.warning("[!] signal_updown.py not found — crypto Up/Down pass disabled")
-from signal_metaculus import fetch_metaculus_price
+    print("[!] signal_updown.py not found — crypto Up/Down pass disabled")
 
 # ──────────────────────────────────────────────────────────────────
 # CONFIG
@@ -89,24 +90,20 @@ CHAIN_ID     = 137   # Polygon mainnet
 # CTFExchange: 0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E (selector 0xedef7d8e)
 FUNDER_ADDRESS = os.environ.get("FUNDER_ADDRESS", "")
 
-# Risk limits
-EV_THRESHOLD      = 0.06    # minimum EV to place a bet
-MAX_STAKE_USD     = 2.00    # absolute max bet size in USD
-MIN_STAKE_USD     = 1.00    # Polymarket minimum order is $1 USDC
-MAX_DRAWDOWN_PCT  = 30.0    # kill switch: stop trading if down this % from peak
-KELLY_FRACTION    = 0.35    # conservative fractional Kelly
-MAX_MARKETS_SCAN  = 1000    # max markets to evaluate per run
-MIN_VOLUME_USD    = 20_000  # skip thin markets
-SLIPPAGE_CAP_PCT  = 2.0     # skip if LMSR price impact > 2%
+# ── SCALPING STRATEGY: $1 flat per trade, target +15% return ──────────
+# Formula: only enter when model_p / market_price × 0.98 - 1 >= 0.15
+# i.e. buy at ≤ $0.852 with enough signal conviction to expect a win.
+# Fixed $1 stake = Polymarket minimum = one clean bet per window.
+EV_THRESHOLD      = 0.15    # 15% minimum net return (after 2% fee)
+MAX_STAKE_USD     = 1.00    # fixed $1 per trade — no Kelly sizing
+MIN_STAKE_USD     = 1.00    # Polymarket minimum
+MAX_DRAWDOWN_PCT  = 30.0    # kill switch: stop if down 30% from peak
+KELLY_FRACTION    = 1.0     # unused — flat $1 stake overrides Kelly
 
-# FIX 3: hourly candles, minimum 24 hours of history
-MIN_HISTORY_POINTS = 24
-PRICE_FIDELITY     = 60     # minutes per candle
-
-# FIX 2: cap traded_markets list
+# cap traded_markets list
 MAX_TRADED_MARKETS = 200
 
-SCAN_INTERVAL_SEC = 60
+SCAN_INTERVAL_SEC = 30
 LOG_FILE          = "bot_log.jsonl"
 STATE_FILE        = "bot_state.json"
 
@@ -211,6 +208,20 @@ def resolve_positions(state: BotState) -> None:
     net_pnl = 0.0
 
     for market_id, pos in to_resolve:
+        # Auto-exit stale 5-min positions (should resolve in minutes, not days)
+        entry_time_str = pos.get("entry_time", "")
+        if pos.get("signal_type") == "5min_updown" and entry_time_str:
+            try:
+                entry_dt = datetime.fromisoformat(entry_time_str.rstrip("Z"))
+                if entry_dt.tzinfo is None:
+                    entry_dt = entry_dt.replace(tzinfo=timezone.utc)
+                if (datetime.now(timezone.utc) - entry_dt).total_seconds() > 86400:
+                    log.info(f"  [STALE] Auto-removing unresolved 5min position: {pos.get('question','?')[:50]}")
+                    del state.active_positions[market_id]
+                    continue
+            except Exception:
+                pass
+
         try:
             resp = requests.get(
                 f"{GAMMA_API}/markets/{market_id}",
@@ -323,7 +334,10 @@ def check_stop_loss(state, clob_client) -> None:
         question    = pos.get("question", "")
         side        = pos.get("side", "YES")
 
-        if not token_id or shares <= 0 or entry_price <= 0:
+        if not token_id or entry_price <= 0:
+            continue
+        # 5-min markets resolve in minutes — stop-loss not applicable
+        if pos.get("signal_type") == "5min_updown":
             continue
 
         try:
@@ -343,22 +357,8 @@ def check_stop_loss(state, clob_client) -> None:
         log.info(f"  [SL] {question[:50]} — loss {loss_pct:.0%}, re-evaluating edge…")
 
         try:
-            history = fetch_price_history(token_id)
-            new_model_p = model_probability(history)
-            if new_model_p is None:
-                log.warning(f"  [SL] Could not get model_p for {question[:40]}, skipping")
-                continue
-            manifold_p  = fetch_manifold_price(question)
-            metaculus_p = fetch_metaculus_price(question)
-            sources = [("macd", new_model_p, 0.30)]
-            if manifold_p:
-                sources.append(("manifold", manifold_p, 0.40))
-            if metaculus_p:
-                sources.append(("metaculus", metaculus_p, 0.30))
-            total_w = sum(w for _, _, w in sources)
-            new_final_p = sum(p * w / total_w for _, p, w in sources)
             bet_price = curr_price if side == "YES" else (1 - curr_price)
-            new_ev = (new_final_p / bet_price) - 1 if bet_price > 0 else 0
+            new_ev = -0.01  # treat as edge-gone when >30% loss
         except Exception as e:
             log.warning(f"  [SL] Could not re-evaluate {question[:40]}: {e}")
             continue
@@ -401,53 +401,6 @@ def check_stop_loss(state, clob_client) -> None:
 # ──────────────────────────────────────────────────────────────────
 # MARKET DATA
 # ──────────────────────────────────────────────────────────────────
-def fetch_live_markets(limit: int = MAX_MARKETS_SCAN) -> List[Dict]:
-    """Fetch currently open (non-resolved) markets sorted by volume."""
-    try:
-        resp = requests.get(
-            f"{GAMMA_API}/markets",
-            params={
-                "active":    "true",
-                "closed":    "false",
-                "limit":     limit,
-                "order":     "volumeNum",
-                "ascending": "false",
-            },
-            timeout=15,
-        )
-        resp.raise_for_status()
-        markets = resp.json()
-        markets = [m for m in markets if float(m.get("volumeNum", m.get("volume", 0))) >= MIN_VOLUME_USD]
-        log.info(f"Fetched {len(markets)} live markets")
-        return markets
-    except Exception as e:
-        log.error(f"Failed to fetch markets: {e}")
-        return []
-
-
-def fetch_price_history(token_id: str, fidelity: int = PRICE_FIDELITY) -> List[Dict]:
-    """
-    Fetch price history for a market token.
-    FIX 3: fidelity=60 (hourly candles).
-    The CLOB API requires 'interval' or startTs/endTs alongside fidelity.
-    We request 2 weeks of hourly data (interval=2w).
-    """
-    if not token_id:
-        return []
-    try:
-        resp = requests.get(
-            f"{CLOB_HOST}/prices-history",
-            params={"market": token_id, "fidelity": fidelity, "interval": "1w"},
-            timeout=10,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        return [{"t": h["t"], "p": float(h["p"])} for h in data.get("history", [])
-                if "t" in h and "p" in h]
-    except Exception:
-        return []
-
-
 def get_orderbook_midprice(token_id: str) -> Optional[float]:
     """Get current best bid/ask midprice from CLOB orderbook."""
     try:
@@ -461,25 +414,6 @@ def get_orderbook_midprice(token_id: str) -> Optional[float]:
 # ──────────────────────────────────────────────────────────────────
 # SIGNAL ENGINE
 # ──────────────────────────────────────────────────────────────────
-def model_probability(history: List[Dict]) -> Optional[float]:
-    """
-    MACD momentum model on hourly candles.
-    FIX 3: tuned alphas for hourly data.
-      fast alpha=0.15  ≈ 6-hour EMA
-      slow alpha=0.03  ≈ 32-hour EMA
-    """
-    if len(history) < MIN_HISTORY_POINTS:
-        return None
-    prices = [h["p"] for h in history]
-    fast, slow = prices[0], prices[0]
-    for p in prices:
-        fast = 0.15 * p + 0.85 * fast   # FIX 3: was 0.25
-        slow = 0.03 * p + 0.97 * slow   # FIX 3: was 0.06
-    momentum = fast - slow
-    model_p  = prices[-1] + momentum * 0.6
-    return float(np.clip(model_p, 0.02, 0.98))
-
-
 def compute_ev(model_p: float, market_price: float, fee: float = 0.02) -> float:
     """
     FIX 4: standard binary bet EV.
@@ -500,17 +434,6 @@ def kelly_size(model_p: float, market_price: float, bankroll: float) -> float:
     f    *= KELLY_FRACTION
     stake = max(0.0, f) * bankroll
     return min(stake, MAX_STAKE_USD)
-
-
-def lmsr_slippage(current_price: float, trade_usd: float, liquidity: float) -> float:
-    """Estimate LMSR slippage for a USD trade at given liquidity depth."""
-    b = max(liquidity, 10)
-    shares = trade_usd / current_price
-    p = np.clip(current_price, 1e-6, 1 - 1e-6)
-    q_yes = b * np.log(p / (1 - p))
-    denom_after = np.exp((q_yes + shares) / b) + 1
-    p_after = np.exp((q_yes + shares) / b) / denom_after
-    return abs(p_after - p)
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -645,6 +568,7 @@ def sync_real_balance(state: BotState, clob_client: Optional["ClobClient"] = Non
             "portfolio": portfolio,
             "was_tracked": old,
         })
+        save_state(state)   # persist synced balance so dashboard always has fresh values
     except Exception as e:
         log.debug(f"  Balance sync skipped ({e}) — using tracked value")
 
@@ -665,8 +589,11 @@ def fetch_updown_markets() -> list:
         )
         resp.raise_for_status()
         all_markets = resp.json()
-        updown = [m for m in all_markets if is_updown_market(m.get("question", ""))]
-        log.info(f"  [Pass A] Up/Down markets found: {len(updown)}/{len(all_markets)}")
+        # Bitcoin ONLY — scalping strategy targets BTC 5-min windows exclusively
+        updown = [m for m in all_markets
+                  if is_updown_market(m.get("question", ""))
+                  and re.search(r'\bbitcoin\b|\bbtc\b', m.get("question", ""), re.I)]
+        log.info(f"  [Pass A] BTC Up/Down markets: {len(updown)}/{len(all_markets)}")
         return updown
     except Exception as e:
         log.error(f"fetch_updown_markets: {e}")
@@ -690,543 +617,142 @@ def run_scan(client: Optional["ClobClient"], state: BotState, paper: bool) -> No
     if check_kill_switch(state):
         return
 
-    # ===============================================================
-    # PASS A -- Crypto Up/Down markets (Binance signal)
-    # ===============================================================
+    # ══════════════════════════════════════════════════════════════════
+    # PASS A — 5-Min/15-Min Crypto Up/Down Markets (full signal stack)
+    # Targets: BTC, ETH, SOL, XRP, DOGE — every 30 seconds
+    # ══════════════════════════════════════════════════════════════════
     if UPDOWN_AVAILABLE:
-        updown_found = 0
+        updown_signals = 0
+
         for raw in fetch_updown_markets():
             market_id = raw.get("id", "")
             question  = raw.get("question", "?")
             if market_id in state.traded_markets:
                 continue
+
             try:
-                tokens    = json.loads(raw["tokens"]) if isinstance(raw.get("tokens"), str) else raw.get("tokens", [])
+                tokens    = json.loads(raw["tokens"]) if isinstance(raw.get("tokens"), str) \
+                            else raw.get("tokens", [])
                 yes_token = next((t for t in tokens if t.get("outcome","").upper()=="YES"), None)
                 no_token  = next((t for t in tokens if t.get("outcome","").upper()=="NO"),  None)
             except Exception:
                 yes_token, no_token = None, None
             if not yes_token:
                 continue
+
             yes_token_id = yes_token.get("token_id", "")
             yes_midprice = get_orderbook_midprice(yes_token_id) or 0.50
             if not (0.03 < yes_midprice < 0.97):
                 continue
-            sig = compute_updown_signal(raw, yes_midprice)
-            if sig is None:
+
+            signal = compute_updown_signal(raw, yes_midprice)
+            if signal is None:
                 continue
-            model_p    = sig["model_p"]
-            confidence = sig["confidence"]
-            if confidence < 0.35:
-                log.debug(f"  [Pass A] Skip low-conf ({confidence:.2f}): {question[:50]}")
+
+            # ── SPREAD ARB: riskless, bypass all other filters ──────────
+            if signal["arb_detected"] and signal["net_arb_ev"] > 0.005:
+                log.info(f"\n  ⚡ RISKLESS ARB  net_ev={signal['net_arb_ev']:.3f}  {question[:50]}")
+                stake = min(state.current_bankroll * 0.10, MAX_STAKE_USD)
+                if stake >= MIN_STAKE_USD and no_token:
+                    no_token_id = no_token.get("token_id", "")
+                    res_yes = submit_order(client, yes_token_id, "BUY",
+                                           yes_midprice, stake / 2, paper)
+                    res_no  = submit_order(client, no_token_id, "BUY",
+                                           1.0 - yes_midprice, stake / 2, paper)
+                    if res_yes.get("status") in ("paper", "submitted"):
+                        state.total_trades    += 1
+                        state.current_bankroll = max(0.0, state.current_bankroll - stake)
+                        state.traded_markets.append(market_id)
+                        audit("spread_arb", {"market_id": market_id, "question": question[:80],
+                                              "net_ev": signal["net_arb_ev"], "stake": stake,
+                                              "paper": paper})
+                        save_state(state)
+                        updown_signals += 1
                 continue
+
+            # ── DIRECTIONAL TRADE filters ─────────────────────────────
+            if not signal["timing_ok"]:
+                continue
+            if signal["signal_strength"] < 1.5:  # needs clear directional move for 15% target
+                continue
+            if signal["confidence"] < 0.35:
+                continue
+
+            model_p     = signal["model_p"]
             no_midprice = 1.0 - yes_midprice
-            ev_yes = compute_ev(model_p,         yes_midprice)
-            ev_no  = compute_ev(1.0 - model_p,   no_midprice)
-            if sig["arb_detected"] and sig["arb_ev"] > 0.02:
-                log.info(f"  ARB EV={sig['arb_ev']:.3f}  {question[:50]}")
-                ev_yes = sig["arb_ev"]
-                ev_no  = sig["arb_ev"]
-                model_p = 0.97
+
+            ev_yes = compute_ev(model_p,       yes_midprice)
+            ev_no  = compute_ev(1.0 - model_p, no_midprice)
+
             if ev_yes >= ev_no and ev_yes >= EV_THRESHOLD:
-                bet_side, ev, bet_price, token, used_p = "YES", ev_yes, yes_midprice, yes_token, model_p
+                bet_side, ev, bet_price, token, used_p = \
+                    "YES", ev_yes, yes_midprice, yes_token, model_p
             elif ev_no > ev_yes and ev_no >= EV_THRESHOLD:
-                bet_side, ev, bet_price, token, used_p = "NO", ev_no, no_midprice, no_token, 1.0 - model_p
+                bet_side, ev, bet_price, token, used_p = \
+                    "NO", ev_no, no_midprice, no_token, 1.0 - model_p
             else:
                 continue
+
             if not token:
                 continue
+
             token_id = token.get("token_id", "")
-            stake = kelly_size(used_p, bet_price, state.current_bankroll)
-            if stake < MIN_STAKE_USD:
-                log.info(f"  [Pass A] Skip (stake ${stake:.2f} < min ${MIN_STAKE_USD}): {question[:50]}")
-                continue
+            stake    = 1.00  # flat $1 per trade — scalping strategy
+            if state.current_bankroll < MIN_STAKE_USD:
+                log.info("  [Pass A] Bankroll below $1 — skipping.")
+                break
+
             log.info(
-                f"\n  CRYPTO SIGNAL  {question[:60]}\n"
-                f"    {bet_side} price={bet_price:.3f} model_p={used_p:.3f} EV={ev:.4f} "
-                f"conf={confidence:.2f} stake=${stake:.2f}\n"
-                f"    move={sig['pct_move']*100:+.3f}% {sig['minutes_left']:.1f}min [{sig['symbol']}]"
+                f"\n  ✦ SIGNAL  {question[:55]}\n"
+                f"    {bet_side} @ {bet_price:.3f}  model={used_p:.3f}  EV={ev:.4f}  "
+                f"conf={signal['confidence']:.2f}  strength={signal['signal_strength']:.2f}\n"
+                f"    move={signal['pct_move']*100:+.3f}%  "
+                f"{signal['minutes_elapsed']:.1f}/{signal['window_duration']:.0f}min elapsed  "
+                f"stake=${stake:.2f}"
             )
+
             audit("signal", {
                 "market_id": market_id, "question": question[:80],
                 "side": bet_side, "price": bet_price, "model_p": used_p,
-                "ev": ev, "stake": stake, "signal_type": "crypto_updown",
-                "confidence": confidence, "pct_move": sig["pct_move"],
-                "minutes_left": sig["minutes_left"], "paper": paper,
+                "ev": ev, "stake": stake, "signal_type": "5min_updown",
+                "signal_strength": signal["signal_strength"],
+                "confidence": signal["confidence"],
+                "pct_move": signal["pct_move"],
+                "minutes_left": signal["minutes_left"],
+                "paper": paper,
             })
-            result = submit_order(client=client, token_id=token_id,
-                                  side="BUY", price=bet_price, size_usd=stake, paper=paper)
+
+            result = submit_order(client, token_id, "BUY", bet_price, stake, paper)
+
             if result.get("status") in ("paper", "submitted"):
-                state.traded_markets.append(market_id)
-                state.total_trades += 1
                 state.active_positions[market_id] = {
-                    "question": question, "side": bet_side,
-                    "token_id": token_id, "yes_token_id": yes_token_id,
-                    "price": bet_price, "stake": stake, "ev": ev,
-                    "entry_time": datetime.now(timezone.utc).isoformat(),
-                    "paper": paper, "signal_type": "crypto_updown",
+                    "question":     question,
+                    "side":         bet_side,
+                    "token_id":     token_id,
+                    "yes_token_id": yes_token_id,
+                    "price":        bet_price,
+                    "stake":        stake,
+                    "ev":           ev,
+                    "entry_time":   datetime.now(timezone.utc).isoformat(),
+                    "paper":        paper,
+                    "signal_type":  "5min_updown",
                 }
+                state.traded_markets.append(market_id)
+                state.total_trades    += 1
                 state.current_bankroll = max(0.0, state.current_bankroll - stake)
                 audit("order_placed", {"market_id": market_id, "stake": stake,
-                                       "signal_type": "crypto_updown", "result": result})
+                                        "signal_type": "5min_updown", "result": result})
                 save_state(state)
-                updown_found += 1
-        if updown_found == 0:
-            log.info("  [Pass A] No crypto signals this scan.")
-    # ===============================================================
-    # PASS B -- General prediction markets (existing logic)
-    # ===============================================================
-    raw_markets = fetch_live_markets()
-    if not raw_markets:
-        log.warning("No markets returned — API may be down")
-        return
+                updown_signals += 1
 
-    signals_found       = 0
-    n_skipped_traded    = 0
-    n_skipped_history   = 0
-    n_skipped_price     = 0
-    n_evaluated         = 0
-    n_manifold_match    = 0
-    n_manifold_rejected = 0
-    scan_market_log: List[Dict] = []   # per-market data written to scan_markets.json
-
-    # Probability band filter: evaluate mid-prob markets first (bigger Kelly stakes),
-    # then long shots only if Bucket A yields < 3 signals.
-    BUCKET_A_CAP = 100   # max Bucket A markets to evaluate per scan
-    BUCKET_B_CAP = 50    # max Bucket B markets to evaluate per scan
-    LONGSHOT_STAKE_CAP = 0.50  # cap stake on long shots regardless of Kelly
-
-    def _get_last_price(m: Dict) -> float:
-        try:
-            return float(m.get("lastTradePrice") or m.get("outcomePrices", "[0.5]").strip("[]").split(",")[0])
-        except Exception:
-            return 0.5
-
-    bucket_a = [m for m in raw_markets if 0.20 <= _get_last_price(m) <= 0.80][:BUCKET_A_CAP]
-    bucket_b = [
-        m for m in raw_markets
-        if m not in bucket_a and 0.05 <= _get_last_price(m) <= 0.95
-    ][:BUCKET_B_CAP]
-
-    # ── Parallel prefetch: price histories + manifold cache warm ──
-    def _token_ids(m):
-        try:
-            ids = m.get("clobTokenIds", "[]")
-            if isinstance(ids, str):
-                ids = json.loads(ids)
-            return ids[0] if ids else ""
-        except Exception:
-            return ""
-
-    _all_prefetch = bucket_a + bucket_b
-    _token_map    = {m.get("id", ""): _token_ids(m) for m in _all_prefetch}
-    _question_map = {m.get("id", ""): m.get("question", "")[:65] for m in _all_prefetch}
-
-    history_cache: Dict[str, List] = {}
-    with ThreadPoolExecutor(max_workers=30) as _ex:
-        _futs = {_ex.submit(fetch_price_history, tid): (mid, tid)
-                 for mid, tid in _token_map.items() if tid}
-        for _f in as_completed(_futs):
-            _mid, _tid = _futs[_f]
-            history_cache[_tid] = _f.result() or []
-
-    with ThreadPoolExecutor(max_workers=15) as _ex:
-        list(_ex.map(fetch_manifold_price, _question_map.values()))
-
-    signals_from_a = 0
-    active_longshot_cap = False
-
-    def _markets_to_scan():
-        nonlocal active_longshot_cap
-        yield from bucket_a
-        if signals_from_a < 3:
-            active_longshot_cap = True
-            yield from bucket_b
-
-    for raw in _markets_to_scan():
-        market_id = raw.get("id", "")
-        question  = raw.get("question", "?")[:65]
-        volume    = float(raw.get("volume", 0))
-
-        if market_id in state.traded_markets:
-            n_skipped_traded += 1
-            if market_id in state.active_positions:
-                skip_reason  = "position_open"
-                skip_detail  = "Position currently open — bot holds this market and is waiting for resolution."
-            else:
-                skip_reason  = "already_traded"
-                skip_detail  = (
-                    "Processed this session (order attempted or placed). "
-                    "Skipped to avoid re-entry. Only successful trades appear in Recent Trades."
-                )
-            scan_market_log.append({
-                "market_id": market_id, "question": question,
-                "volume": volume, "skip_reason": skip_reason,
-                "skip_detail": skip_detail,
-                "signal": False,
-            })
-            continue
-
-        # Extract YES/NO token IDs from clobTokenIds field (index 0=YES, 1=NO)
-        try:
-            clob_ids = raw.get("clobTokenIds", "[]")
-            if isinstance(clob_ids, str):
-                clob_ids = json.loads(clob_ids)
-            yes_token_id = clob_ids[0] if len(clob_ids) > 0 else ""
-            no_token_id  = clob_ids[1] if len(clob_ids) > 1 else ""
-            yes_token = {"token_id": yes_token_id, "outcome": "YES"} if yes_token_id else None
-            no_token  = {"token_id": no_token_id,  "outcome": "NO"}  if no_token_id  else None
-        except Exception:
-            yes_token_id, no_token_id = "", ""
-            yes_token, no_token = None, None
-
-        history = history_cache.get(yes_token_id, [])
-        if len(history) < MIN_HISTORY_POINTS:
-            log.info(f"  {question[:48]:48s}  ✗ not enough price history ({len(history)} pts, need {MIN_HISTORY_POINTS})")
-            n_skipped_history += 1
-            scan_market_log.append({
-                "market_id": market_id, "question": question, "volume": volume,
-                "skip_reason": "no_history",
-                "skip_detail": f"Only {len(history)} hourly candles available. Need {MIN_HISTORY_POINTS}h for MACD signal.",
-                "signal": False,
-            })
-            continue
-
-        current_price = history[-1]["p"]
-        if not (0.05 < current_price < 0.95):
-            log.info(f"  {question[:48]:48s}  ✗ near-resolved (price={current_price:.2f})")
-            n_skipped_price += 1
-            scan_market_log.append({
-                "market_id": market_id, "question": question, "volume": volume,
-                "price": round(current_price, 4),
-                "skip_reason": "near_resolved",
-                "skip_detail": f"Price is {current_price:.1%} — market is near resolution. Bot only trades 5%–95% range.",
-                "signal": False,
-            })
-            continue
-
-        n_evaluated += 1
-        in_bucket_a = raw in bucket_a
-
-        # Resolution date scoring
-        end_date_str = raw.get("endDate") or raw.get("end_date_min") or ""
-        days_until = None
-        if end_date_str:
-            try:
-                from datetime import datetime as _dt, timezone as _tz
-                end_dt = _dt.fromisoformat(end_date_str.replace("Z", "+00:00"))
-                days_until = (end_dt - _dt.now(_tz.utc)).days
-            except Exception:
-                pass
-
-        if days_until is not None:
-            if days_until <= 30:
-                date_score = 1.5
-            elif days_until <= 90:
-                date_score = 1.0
-            else:
-                date_score = max(0.6, 1.0 - (days_until - 90) / 1000)
-        else:
-            date_score = 1.0
-
-        log.info(f"  endDate={end_date_str[:10] if end_date_str else 'N/A'}  days_until={days_until}  date_score={date_score:.2f}")
-
-        # FIX 3: MACD with hourly-tuned alphas
-        model_p = model_probability(history)
-        if model_p is None:
-            scan_market_log.append({
-                "market_id": market_id, "question": question, "volume": volume,
-                "price": round(current_price, 4),
-                "skip_reason": "no_model",
-                "skip_detail": "MACD model returned no probability (insufficient price variation).",
-                "signal": False,
-            })
-            continue
-
-        # FIX 5: Multi-source signal blending (Manifold + Metaculus)
-        manifold_raw = fetch_manifold_price(question)
-        manifold_p   = manifold_raw
-        manifold_rejected = False
-        if manifold_p is not None:
-            n_manifold_match += 1
-            diff = abs(manifold_p - current_price)
-            if diff > 0.50:
-                log.info(
-                    f"  Manifold: {manifold_p:.3f} REJECTED (divergence {diff:.2f} > 0.50 "
-                    f"from Poly {current_price:.3f})"
-                )
-                manifold_rejected = True
-                manifold_p = None
-                n_manifold_rejected += 1
-            else:
-                log.info(
-                    f"  Manifold: {manifold_p:.3f} | Poly: {current_price:.3f} "
-                    f"| diff: {manifold_p - current_price:+.3f}"
-                )
-        else:
-            log.info(f"  Manifold: no match for '{question[:40]}'")
-
-        metaculus_p = fetch_metaculus_price(question)
-        if metaculus_p is not None:
-            log.info(f"  Metaculus: {metaculus_p:.3f}")
-        else:
-            log.info(f"  Metaculus: no match for '{question[:40]}'")
-
-        sources = [("macd", model_p, 0.30)]
-        if manifold_p is not None:
-            sources.append(("manifold", manifold_p, 0.40))
-        if metaculus_p is not None:
-            sources.append(("metaculus", metaculus_p, 0.30))
-
-        total_w = sum(w for _, _, w in sources)
-        final_model_p = sum(p * w / total_w for _, p, w in sources)
-        final_model_p = float(np.clip(final_model_p, 0.02, 0.98))
-
-        log.info("  Signal sources: " + ", ".join(
-            f"{name}={p:.3f}(w={w/total_w:.0%})" for name, p, w in sources
-        ))
-
-        model_p = final_model_p
-
-        # FIX 4: correct binary EV formula
-        ev_yes  = compute_ev(model_p,       current_price)
-        ev_no   = compute_ev(1 - model_p,   1 - current_price)
-        best_ev = max(ev_yes, ev_no)
-        best_side = "YES" if ev_yes >= ev_no else "NO"
-
-        effective_ev_yes = ev_yes * date_score
-        effective_ev_no  = ev_no  * date_score
-        best_effective_ev = max(effective_ev_yes, effective_ev_no)
-
-        verdict = "✓ EDGE" if best_effective_ev >= EV_THRESHOLD else f"✗ EV too low (need {EV_THRESHOLD:.0%})"
-        log.info(
-            f"  {question[:48]:48s}  "
-            f"price={current_price:.2f}  model={model_p:.2f}  "
-            f"EV={best_ev:+.3f}  effEV={best_effective_ev:+.3f}  {verdict}"
-        )
-
-        if effective_ev_yes >= effective_ev_no and effective_ev_yes >= EV_THRESHOLD:
-            bet_side  = "YES"
-            ev        = ev_yes
-            bet_price = current_price
-            token     = yes_token
-            used_p    = model_p
-        elif effective_ev_no > effective_ev_yes and effective_ev_no >= EV_THRESHOLD:
-            bet_side  = "NO"
-            ev        = ev_no
-            bet_price = 1 - current_price
-            token     = no_token
-            used_p    = 1 - model_p
-        else:
-            manifold_note = ""
-            if manifold_rejected:
-                manifold_note = f" Manifold returned {manifold_raw:.3f} but was rejected (>{50}% divergence from Poly)."
-            elif manifold_p is not None:
-                manifold_note = f" Manifold blended: {manifold_p:.3f}."
-            scan_market_log.append({
-                "market_id": market_id, "question": question, "volume": volume,
-                "price": round(current_price, 4), "model_p": round(model_p, 4),
-                "manifold_p": round(manifold_p, 4) if manifold_p else None,
-                "ev": round(best_ev, 4), "best_side": best_side,
-                "endDate": end_date_str[:10] if end_date_str else None,
-                "days_until_resolution": days_until,
-                "date_score": round(date_score, 3),
-                "skip_reason": "ev_too_low",
-                "skip_detail": (
-                    f"Best EV is {best_ev:.1%} on {best_side} — below the {EV_THRESHOLD:.0%} threshold. "
-                    f"MACD model_p={model_p:.3f} vs market price={current_price:.3f}.{manifold_note}"
-                ),
-                "signal": False,
-            })
-            continue
-
-        # Slippage check
-        liquidity = float(raw.get("liquidity", 100))
-        stake     = kelly_size(used_p, bet_price, state.current_bankroll)
-        # Long-shot stake cap: Bucket B markets capped at $0.50
-        if not in_bucket_a:
-            stake = min(stake, LONGSHOT_STAKE_CAP)
-        min_order_cost = max(5 * bet_price, 1.00)  # Polymarket min: 5 shares AND $1
-        if stake < min_order_cost:
-            if min_order_cost <= stake * 4:  # allow up to 4x Kelly to meet minimum
-                log.info(f"  Bumping stake ${stake:.2f} → ${min_order_cost:.2f} to meet $1 minimum: {question[:40]}")
-                stake = min_order_cost
-            else:
-                log.info(f"  Skip (min order ${min_order_cost:.2f} is >4x Kelly ${stake:.2f}): {question[:40]}")
-            scan_market_log.append({
-                "market_id": market_id, "question": question, "volume": volume,
-                "price": round(current_price, 4), "model_p": round(model_p, 4),
-                "manifold_p": round(manifold_p, 4) if manifold_p else None,
-                "ev": round(best_ev, 4), "best_side": best_side,
-                "skip_reason": "stake_too_small",
-                "skip_detail": f"Kelly-sized stake ${stake:.2f} is below the ${MIN_STAKE_USD} minimum. Edge exists but bankroll too small for this bet.",
-                "signal": False,
-            })
-            continue
-
-        slip = lmsr_slippage(bet_price, stake, liquidity)
-        if slip / bet_price > (SLIPPAGE_CAP_PCT / 100):
-            log.info(f"  Skip (slippage {slip/bet_price*100:.1f}% > {SLIPPAGE_CAP_PCT}%): {question[:40]}")
-            scan_market_log.append({
-                "market_id": market_id, "question": question, "volume": volume,
-                "price": round(current_price, 4), "model_p": round(model_p, 4),
-                "manifold_p": round(manifold_p, 4) if manifold_p else None,
-                "ev": round(best_ev, 4), "best_side": best_side,
-                "skip_reason": "slippage",
-                "skip_detail": f"Market impact {slip/bet_price*100:.1f}% exceeds the {SLIPPAGE_CAP_PCT}% slippage cap. Low liquidity (${liquidity:,.0f}).",
-                "signal": False,
-            })
-            continue
-
-        signals_found += 1
-        if in_bucket_a:
-            signals_from_a += 1
-        token_id = token.get("token_id", "") if token else ""
-
-        bucket_label = "A (mid-prob)" if in_bucket_a else "B (long-shot)"
-        log.info(f"\n  ✦ SIGNAL FOUND  [{bucket_label}]")
-        log.info(f"    Market    : {question}")
-        log.info(f"    Side      : {bet_side}")
-        log.info(f"    Price     : {bet_price:.3f}  |  Model p: {used_p:.3f}  |  EV: {ev:.4f}")
-        log.info(f"    Manifold  : {manifold_p:.3f}" if manifold_p else "    Manifold  : no match")
-        log.info(f"    Stake     : ${stake:.2f}  |  Slippage: {slip/bet_price*100:.2f}%")
-        log.info(f"    Token ID  : {token_id[:20]}…")
-
-        result = submit_order(
-            client   = client,
-            token_id = token_id,
-            side     = "BUY",
-            price    = bet_price,
-            size_usd = stake,
-            paper    = paper,
-        )
-
-        # Always blacklist this market to avoid re-evaluation (shows as Attempted in dashboard)
-        if market_id not in state.traded_markets:
-            state.traded_markets.append(market_id)
-
-        if result.get("status") in ("paper", "submitted"):
-            state.total_trades += 1
-            _shares = math.ceil(stake / bet_price) if bet_price > 0 else 0
-            _real_cost = round(_shares * bet_price, 6)
-            state.active_positions[market_id] = {
-                "question":  question,
-                "side":      bet_side,
-                "token_id":  token_id,
-                "price":     bet_price,
-                "shares":    _shares,
-                "stake":     _real_cost,
-                "ev":        ev,
-                "paper":     paper,
-            }
-            if paper:
-                state.current_bankroll -= stake
-                state.current_bankroll  = max(0.0, state.current_bankroll)
-
-            audit("signal", {
-                "market_id":   market_id,
-                "question":    question,
-                "side":        bet_side,
-                "price":       bet_price,
-                "model_p":     used_p,
-                "manifold_p":  manifold_p,
-                "metaculus_p": metaculus_p,
-                "ev":          ev,
-                "stake":       stake,
-                "token_id":    token_id,
-                "paper":       paper,
-            })
-            audit("order_placed", {
-                "market_id": market_id,
-                "stake":     stake,
-                "result":    result,
-            })
-            scan_market_log.append({
-                "market_id": market_id, "question": question, "volume": volume,
-                "price": round(bet_price, 4), "model_p": round(used_p, 4),
-                "manifold_p": round(manifold_p, 4) if manifold_p else None,
-                "ev": round(ev, 4), "best_side": bet_side,
-                "stake": round(stake, 2),
-                "skip_reason": None,
-                "skip_detail": f"Signal placed! {bet_side} at {bet_price:.3f} — EV {ev:.1%}, stake ${stake:.2f}.",
-                "signal": True,
-            })
-        else:
-            log.warning(f"  Order failed ({result.get('reason','?')}) — market skipped for this session")
-            scan_market_log.append({
-                "market_id": market_id, "question": question, "volume": volume,
-                "price": round(bet_price, 4), "model_p": round(used_p, 4),
-                "manifold_p": round(manifold_p, 4) if manifold_p else None,
-                "ev": round(ev, 4), "best_side": bet_side,
-                "skip_reason": "order_failed",
-                "skip_detail": f"Signal found (EV {ev:.1%}) but order submission failed: {result.get('reason','unknown')}.",
-                "signal": False,
-            })
-
-        save_state(state)
-
-    if signals_found == 0:
-        log.info("  No EV signals found this scan.")
-
-    save_state(state)
-
-    # Write per-market scan data for dashboard
-    try:
-        with open("scan_markets.json", "w") as f:
-            json.dump({
-                "ts":      datetime.now(timezone.utc).isoformat(),
-                "markets": scan_market_log,
-            }, f)
-    except Exception as e:
-        log.debug(f"Could not write scan_markets.json: {e}")
-
+        if updown_signals == 0:
+            log.info("  [Pass A] No signals this scan.")
     duration_sec = round(time.time() - scan_start_time, 1)
     audit("scan_complete", {
-        "markets_fetched":      len(raw_markets),
-        "markets_skipped_traded":  n_skipped_traded,
-        "markets_skipped_history": n_skipped_history,
-        "markets_skipped_price":   n_skipped_price,
-        "markets_evaluated":    n_evaluated,
-        "manifold_matched":     n_manifold_match,
-        "manifold_rejected":    n_manifold_rejected,
-        "signals_found":        signals_found,
-        "duration_sec":         duration_sec,
-        "paper":                paper,
+        "signals_found": updown_signals if UPDOWN_AVAILABLE else 0,
+        "duration_sec":  duration_sec,
+        "paper":         paper,
     })
-
-    # Daily summary at midnight UTC (within one scan window)
-    now_utc = datetime.now(timezone.utc)
-    if now_utc.hour == 0 and now_utc.minute < 6:
-        try:
-            today = now_utc.date().isoformat()
-            trades_today, pnl_today, signals_today, scans_today = 0, 0.0, 0, 0
-            with open(LOG_FILE) as f:
-                for line in f:
-                    try:
-                        ev = json.loads(line)
-                        if ev.get("ts", "").startswith(today):
-                            if ev.get("event") == "order_placed":
-                                trades_today += 1
-                            elif ev.get("event") == "position_resolved":
-                                pnl_today += ev.get("data", {}).get("pnl", 0)
-                            elif ev.get("event") == "signal":
-                                signals_today += 1
-                            elif ev.get("event") == "scan_complete":
-                                scans_today += 1
-                    except Exception:
-                        pass
-            audit("daily_summary", {
-                "date":             today,
-                "trades_today":     trades_today,
-                "pnl_today":        round(pnl_today, 4),
-                "scans_today":      scans_today,
-                "signals_today":    signals_today,
-                "bankroll":         state.current_bankroll,
-                "paper":            paper,
-            })
-            log.info(f"  [daily] {today}: {trades_today} trades | PnL ${pnl_today:+.2f} | {signals_today} signals | bankroll ${state.current_bankroll:.2f}")
-        except Exception as e:
-            log.debug(f"Daily summary failed: {e}")
 
     log.info(
         f"\n  Bankroll: ${state.current_bankroll:.2f} | "
@@ -1234,8 +760,6 @@ def run_scan(client: Optional["ClobClient"], state: BotState, paper: bool) -> No
         f"Resolved: {len(state.resolved_positions)}"
     )
 
-
-# ──────────────────────────────────────────────────────────────────
 # ENTRY POINT
 # ──────────────────────────────────────────────────────────────────
 def main():
@@ -1264,7 +788,7 @@ def main():
         log.warning("  🔴  LIVE MODE — real money will be spent")
         log.warning(f"  Bankroll: ${args.bankroll:.2f}")
         log.warning(f"  Max per trade: ${args.max_stake:.2f}")
-        log.warning(f"  Kill switch: -{MAX_DRAWDOWN_PCT:.0f}% drawdown")
+        log.warning(f"  Stop threshold: -{MAX_DRAWDOWN_PCT:.0f}% drawdown from peak")
         log.warning("=" * 55)
         time.sleep(3)
     else:
@@ -1299,6 +823,15 @@ def main():
             sys.exit(1)
     else:
         audit("session_start", {"mode": "paper", "bankroll": args.bankroll})
+
+    # Start Polymarket real-time price stream (same oracle used for resolution)
+    if UPDOWN_AVAILABLE:
+        try:
+            start_rtds_stream()
+            log.info("  Waiting 3s for RTDS WebSocket to connect…")
+            time.sleep(3)
+        except Exception as e:
+            log.warning(f"  RTDS not started: {e} — using Binance fallback")
 
     state = load_state(args.bankroll)
 
