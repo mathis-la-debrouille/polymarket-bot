@@ -652,20 +652,20 @@ def sync_real_balance(state: BotState, clob_client: Optional["ClobClient"] = Non
 # ──────────────────────────────────────────────────────────────────
 # MAIN SCAN LOOP
 # ──────────────────────────────────────────────────────────────────
-def fetch_updown_markets(limit: int = 100) -> list:
+def fetch_updown_markets() -> list:
     """Fetch active Bitcoin/Ethereum Up or Down markets from Gamma API."""
     try:
+        # Order by endDate ascending to get soon-expiring windows first.
+        # No volume filter: these 5-min markets have ~$10 volume by design.
         resp = requests.get(
             f"{GAMMA_API}/markets",
             params={"active": "true", "closed": "false",
-                    "limit": limit, "order": "volume", "ascending": "false"},
+                    "limit": 200, "order": "endDate", "ascending": "true"},
             timeout=15,
         )
         resp.raise_for_status()
         all_markets = resp.json()
-        updown = [m for m in all_markets
-                  if is_updown_market(m.get("question", ""))
-                  and float(m.get("volume", 0)) >= 100]
+        updown = [m for m in all_markets if is_updown_market(m.get("question", ""))]
         log.info(f"  [Pass A] Up/Down markets found: {len(updown)}/{len(all_markets)}")
         return updown
     except Exception as e:
