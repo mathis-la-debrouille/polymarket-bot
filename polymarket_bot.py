@@ -68,6 +68,12 @@ except ImportError:
     print("    Running in paper-mode only until installed.\n")
 
 from signal_manifold import fetch_manifold_price, _cache_ratio as _manifold_cache_ratio
+try:
+    from signal_updown import compute_updown_signal, is_updown_market
+    UPDOWN_AVAILABLE = True
+except ImportError:
+    UPDOWN_AVAILABLE = False
+    log.warning("[!] signal_updown.py not found — crypto Up/Down pass disabled")
 from signal_metaculus import fetch_metaculus_price
 
 # ──────────────────────────────────────────────────────────────────
@@ -100,7 +106,7 @@ PRICE_FIDELITY     = 60     # minutes per candle
 # FIX 2: cap traded_markets list
 MAX_TRADED_MARKETS = 200
 
-SCAN_INTERVAL_SEC = 300
+SCAN_INTERVAL_SEC = 60
 LOG_FILE          = "bot_log.jsonl"
 STATE_FILE        = "bot_state.json"
 
@@ -165,7 +171,8 @@ def load_state(bankroll: float) -> BotState:
             d.setdefault("resolved_positions", [])
             d.setdefault("clob_cash", None)  # may not exist in old state files
             d.setdefault("scans_since_sl_check", 0)
-            state = BotState(**d)
+            known = {f.name for f in BotState.__dataclass_fields__.values()}
+            state = BotState(**{k: v for k, v in d.items() if k in known})
             log.info(f"Resumed state: bankroll=${state.current_bankroll:.2f}, "
                      f"trades={state.total_trades}, pnl={state.total_pnl:+.2f}")
             return state
@@ -645,6 +652,26 @@ def sync_real_balance(state: BotState, clob_client: Optional["ClobClient"] = Non
 # ──────────────────────────────────────────────────────────────────
 # MAIN SCAN LOOP
 # ──────────────────────────────────────────────────────────────────
+def fetch_updown_markets(limit: int = 100) -> list:
+    """Fetch active Bitcoin/Ethereum Up or Down markets from Gamma API."""
+    try:
+        resp = requests.get(
+            f"{GAMMA_API}/markets",
+            params={"active": "true", "closed": "false",
+                    "limit": limit, "order": "volume", "ascending": "false"},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        all_markets = resp.json()
+        updown = [m for m in all_markets
+                  if is_updown_market(m.get("question", ""))
+                  and float(m.get("volume", 0)) >= 5000]
+        log.info(f"  [Pass A] Up/Down markets found: {len(updown)}/{len(all_markets)}")
+        return updown
+    except Exception as e:
+        log.error(f"fetch_updown_markets: {e}")
+        return []
+
 def run_scan(client: Optional["ClobClient"], state: BotState, paper: bool) -> None:
     """One full scan: resolve positions → fetch markets → evaluate → place trades."""
     scan_start_time = time.time()
@@ -663,6 +690,92 @@ def run_scan(client: Optional["ClobClient"], state: BotState, paper: bool) -> No
     if check_kill_switch(state):
         return
 
+    # ===============================================================
+    # PASS A -- Crypto Up/Down markets (Binance signal)
+    # ===============================================================
+    if UPDOWN_AVAILABLE:
+        updown_found = 0
+        for raw in fetch_updown_markets():
+            market_id = raw.get("id", "")
+            question  = raw.get("question", "?")
+            if market_id in state.traded_markets:
+                continue
+            try:
+                tokens    = json.loads(raw["tokens"]) if isinstance(raw.get("tokens"), str) else raw.get("tokens", [])
+                yes_token = next((t for t in tokens if t.get("outcome","").upper()=="YES"), None)
+                no_token  = next((t for t in tokens if t.get("outcome","").upper()=="NO"),  None)
+            except Exception:
+                yes_token, no_token = None, None
+            if not yes_token:
+                continue
+            yes_token_id = yes_token.get("token_id", "")
+            yes_midprice = get_orderbook_midprice(yes_token_id) or 0.50
+            if not (0.03 < yes_midprice < 0.97):
+                continue
+            sig = compute_updown_signal(raw, yes_midprice)
+            if sig is None:
+                continue
+            model_p    = sig["model_p"]
+            confidence = sig["confidence"]
+            if confidence < 0.35:
+                log.debug(f"  [Pass A] Skip low-conf ({confidence:.2f}): {question[:50]}")
+                continue
+            no_midprice = 1.0 - yes_midprice
+            ev_yes = compute_ev(model_p,         yes_midprice)
+            ev_no  = compute_ev(1.0 - model_p,   no_midprice)
+            if sig["arb_detected"] and sig["arb_ev"] > 0.02:
+                log.info(f"  ARB EV={sig['arb_ev']:.3f}  {question[:50]}")
+                ev_yes = sig["arb_ev"]
+                ev_no  = sig["arb_ev"]
+                model_p = 0.97
+            if ev_yes >= ev_no and ev_yes >= EV_THRESHOLD:
+                bet_side, ev, bet_price, token, used_p = "YES", ev_yes, yes_midprice, yes_token, model_p
+            elif ev_no > ev_yes and ev_no >= EV_THRESHOLD:
+                bet_side, ev, bet_price, token, used_p = "NO", ev_no, no_midprice, no_token, 1.0 - model_p
+            else:
+                continue
+            if not token:
+                continue
+            token_id = token.get("token_id", "")
+            stake = kelly_size(used_p, bet_price, state.current_bankroll)
+            if stake < MIN_STAKE_USD:
+                log.info(f"  [Pass A] Skip (stake ${stake:.2f} < min ${MIN_STAKE_USD}): {question[:50]}")
+                continue
+            log.info(
+                f"\n  CRYPTO SIGNAL  {question[:60]}\n"
+                f"    {bet_side} price={bet_price:.3f} model_p={used_p:.3f} EV={ev:.4f} "
+                f"conf={confidence:.2f} stake=${stake:.2f}\n"
+                f"    move={sig['pct_move']*100:+.3f}% {sig['minutes_left']:.1f}min [{sig['symbol']}]"
+            )
+            audit("signal", {
+                "market_id": market_id, "question": question[:80],
+                "side": bet_side, "price": bet_price, "model_p": used_p,
+                "ev": ev, "stake": stake, "signal_type": "crypto_updown",
+                "confidence": confidence, "pct_move": sig["pct_move"],
+                "minutes_left": sig["minutes_left"], "paper": paper,
+            })
+            result = submit_order(client=client, token_id=token_id,
+                                  side="BUY", price=bet_price, size_usd=stake, paper=paper)
+            if result.get("status") in ("paper", "submitted"):
+                state.traded_markets.append(market_id)
+                state.total_trades += 1
+                state.active_positions[market_id] = {
+                    "question": question, "side": bet_side,
+                    "token_id": token_id, "yes_token_id": yes_token_id,
+                    "price": bet_price, "stake": stake, "ev": ev,
+                    "entry_time": datetime.now(timezone.utc).isoformat(),
+                    "paper": paper, "signal_type": "crypto_updown",
+                }
+                state.current_bankroll = max(0.0, state.current_bankroll - stake)
+                audit("order_placed", {"market_id": market_id, "stake": stake,
+                                       "signal_type": "crypto_updown", "result": result})
+                save_state(state)
+                updown_found += 1
+        if updown_found == 0:
+            log.info("  [Pass A] No crypto signals this scan.")
+    # ===============================================================
+    # PASS B -- General prediction markets (existing logic)
+    # ===============================================================
     raw_markets = fetch_live_markets()
     if not raw_markets:
         log.warning("No markets returned — API may be down")
