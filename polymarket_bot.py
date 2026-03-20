@@ -665,7 +665,7 @@ def fetch_updown_markets(limit: int = 100) -> list:
         all_markets = resp.json()
         updown = [m for m in all_markets
                   if is_updown_market(m.get("question", ""))
-                  and float(m.get("volume", 0)) >= 5000]
+                  and float(m.get("volume", 0)) >= 100]
         log.info(f"  [Pass A] Up/Down markets found: {len(updown)}/{len(all_markets)}")
         return updown
     except Exception as e:
