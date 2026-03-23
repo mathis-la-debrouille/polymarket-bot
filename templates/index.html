@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Polymarket Scalper</title>
+  <title>Polymarket Bot</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -52,9 +52,7 @@
       white-space: nowrap;
     }
 
-    #topbar h1 span {
-      color: var(--blue);
-    }
+    #topbar h1 span { color: var(--blue); }
 
     .spacer { flex: 1; }
 
@@ -68,10 +66,9 @@
       text-transform: uppercase;
     }
 
-    .badge-paper { background: rgba(210,153,34,0.2); color: var(--yellow); border: 1px solid var(--yellow); }
-    .badge-live  { background: rgba(248,81,73,0.2);  color: var(--red);    border: 1px solid var(--red); }
-    .badge-5min  { background: rgba(88,166,255,0.15); color: var(--blue);   border: 1px solid rgba(88,166,255,0.4); font-size: 10px; padding: 1px 5px; }
-    .badge-legacy{ background: rgba(139,148,158,0.15); color: var(--muted); border: 1px solid rgba(139,148,158,0.3); font-size: 10px; padding: 1px 5px; }
+    .badge-paper  { background: rgba(210,153,34,0.2);  color: var(--yellow); border: 1px solid var(--yellow); }
+    .badge-live   { background: rgba(248,81,73,0.2);   color: var(--red);    border: 1px solid var(--red); }
+    .badge-signal { background: rgba(88,166,255,0.15); color: var(--blue);   border: 1px solid rgba(88,166,255,0.4); font-size: 10px; padding: 1px 5px; }
 
     #scan-status {
       font-size: 12px;
@@ -80,19 +77,10 @@
     }
     #scan-status.stale { color: var(--red); }
 
-    #refresh-info {
-      font-size: 12px;
-      color: var(--muted);
-      white-space: nowrap;
-    }
+    #refresh-info  { font-size: 12px; color: var(--muted); white-space: nowrap; }
+    #updated-time  { font-size: 12px; color: var(--muted); white-space: nowrap; }
 
-    #updated-time {
-      font-size: 12px;
-      color: var(--muted);
-      white-space: nowrap;
-    }
-
-    /* ── Paper Mode Banner ── */
+    /* ── Banners ── */
     #paper-banner {
       display: none;
       background: rgba(210,153,34,0.12);
@@ -104,7 +92,6 @@
       font-weight: 500;
     }
 
-    /* ── Kill Switch Banner ── */
     #kill-banner {
       display: none;
       background: rgba(248,81,73,0.12);
@@ -133,12 +120,8 @@
       gap: 12px;
     }
 
-    @media (max-width: 900px) {
-      .kpi-row { grid-template-columns: repeat(3, 1fr); }
-    }
-    @media (max-width: 600px) {
-      .kpi-row { grid-template-columns: repeat(2, 1fr); }
-    }
+    @media (max-width: 900px) { .kpi-row { grid-template-columns: repeat(3, 1fr); } }
+    @media (max-width: 600px) { .kpi-row { grid-template-columns: repeat(2, 1fr); } }
 
     .card {
       background: var(--surface);
@@ -176,11 +159,11 @@
       margin-top: 4px;
     }
 
-    .green { color: var(--green); }
-    .red   { color: var(--red); }
-    .blue  { color: var(--blue); }
-    .yellow{ color: var(--yellow); }
-    .muted { color: var(--muted); }
+    .green  { color: var(--green); }
+    .red    { color: var(--red); }
+    .blue   { color: var(--blue); }
+    .yellow { color: var(--yellow); }
+    .muted  { color: var(--muted); }
 
     /* ── Middle Row ── */
     .mid-row {
@@ -189,9 +172,7 @@
       gap: 12px;
     }
 
-    @media (max-width: 900px) {
-      .mid-row { grid-template-columns: 1fr; }
-    }
+    @media (max-width: 900px) { .mid-row { grid-template-columns: 1fr; } }
 
     .card-title {
       font-size: 12px;
@@ -208,9 +189,7 @@
     }
 
     /* ── Tables ── */
-    .table-wrap {
-      overflow-x: auto;
-    }
+    .table-wrap { overflow-x: auto; }
 
     table {
       width: 100%;
@@ -238,18 +217,17 @@
     }
 
     tr:last-child td { border-bottom: none; }
-
     tr:hover td { background: rgba(255,255,255,0.02); }
 
-    .result-won  { display: inline-block; padding: 1px 7px; border-radius: 4px; font-size: 11px; font-weight: 700; background: rgba(63,185,80,0.15); color: var(--green); }
-    .result-lost { display: inline-block; padding: 1px 7px; border-radius: 4px; font-size: 11px; font-weight: 700; background: rgba(248,81,73,0.15); color: var(--red); }
+    .result-won  { display: inline-block; padding: 1px 7px; border-radius: 4px; font-size: 11px; font-weight: 700; background: rgba(63,185,80,0.15);  color: var(--green); }
+    .result-lost { display: inline-block; padding: 1px 7px; border-radius: 4px; font-size: 11px; font-weight: 700; background: rgba(248,81,73,0.15);  color: var(--red); }
     .result-open { display: inline-block; padding: 1px 7px; border-radius: 4px; font-size: 11px; font-weight: 700; background: rgba(139,148,158,0.15); color: var(--muted); }
 
-    .side-yes { display: inline-block; padding: 1px 7px; border-radius: 4px; font-size: 11px; font-weight: 700; background: rgba(63,185,80,0.15); color: var(--green); }
-    .side-no  { display: inline-block; padding: 1px 7px; border-radius: 4px; font-size: 11px; font-weight: 700; background: rgba(248,81,73,0.15); color: var(--red); }
+    .side-yes { display: inline-block; padding: 1px 7px; border-radius: 4px; font-size: 11px; font-weight: 700; background: rgba(63,185,80,0.15);  color: var(--green); }
+    .side-no  { display: inline-block; padding: 1px 7px; border-radius: 4px; font-size: 11px; font-weight: 700; background: rgba(248,81,73,0.15);  color: var(--red); }
 
     .market-name {
-      max-width: 220px;
+      max-width: 240px;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
@@ -263,7 +241,6 @@
       padding: 32px 0;
       font-size: 13px;
     }
-
     .empty-state .icon { font-size: 28px; margin-bottom: 8px; }
 
     /* ── Error overlay ── */
@@ -288,7 +265,6 @@
       gap: 8px;
       margin-bottom: 14px;
     }
-
     .section-header .card-title { margin-bottom: 0; }
     .section-header .count-badge {
       background: var(--surface2);
@@ -304,7 +280,7 @@
 
 <!-- Top Bar -->
 <div id="topbar">
-  <h1>Polymarket <span>Scalper</span></h1>
+  <h1>Polymarket <span>Bot</span></h1>
   <span id="mode-badge" class="badge badge-paper">PAPER</span>
   <span id="scan-status" class="muted">scan: —</span>
   <div class="spacer"></div>
@@ -320,17 +296,17 @@
 
   <!-- KPI Row -->
   <div class="kpi-row">
-    <div class="kpi-card" id="card-portfolio">
+    <div class="kpi-card">
       <div class="kpi-label">Portfolio</div>
       <div class="kpi-value" id="kpi-portfolio">—</div>
       <div class="kpi-sub" id="kpi-portfolio-sub">loading…</div>
     </div>
-    <div class="kpi-card" id="card-pnl">
+    <div class="kpi-card">
       <div class="kpi-label">P&amp;L</div>
       <div class="kpi-value" id="kpi-pnl">—</div>
       <div class="kpi-sub" id="kpi-pnl-sub">—</div>
     </div>
-    <div class="kpi-card" id="card-drawdown">
+    <div class="kpi-card">
       <div class="kpi-label">Drawdown</div>
       <div class="kpi-value" id="kpi-drawdown">—</div>
       <div class="kpi-sub" id="kpi-drawdown-sub">from peak</div>
@@ -343,7 +319,7 @@
     <div class="kpi-card">
       <div class="kpi-label">Signals</div>
       <div class="kpi-value blue" id="kpi-trades">—</div>
-      <div class="kpi-sub" id="kpi-trades-sub">5min up/down</div>
+      <div class="kpi-sub" id="kpi-trades-sub">positions open</div>
     </div>
   </div>
 
@@ -378,14 +354,13 @@
               <th>Entry</th>
               <th>Model P</th>
               <th>EV</th>
-              <th>Str</th>
-              <th>Move%</th>
+              <th>Strategy</th>
               <th>Stake</th>
               <th>Result</th>
             </tr>
           </thead>
           <tbody id="trades-body">
-            <tr><td colspan="10"><div class="empty-state"><div class="icon">⏳</div>Loading…</div></td></tr>
+            <tr><td colspan="9"><div class="empty-state"><div class="icon">⏳</div>Loading…</div></td></tr>
           </tbody>
         </table>
       </div>
@@ -404,14 +379,14 @@
         <thead>
           <tr>
             <th>Market</th>
-            <th>Signal</th>
+            <th>Strategy</th>
             <th>Side</th>
             <th>Entry</th>
             <th>Current</th>
             <th>Shares</th>
             <th>Unreal. P&amp;L</th>
             <th>Stake</th>
-            <th>Paper</th>
+            <th>Mode</th>
           </tr>
         </thead>
         <tbody id="positions-body">
@@ -419,6 +394,15 @@
         </tbody>
       </table>
     </div>
+  </div>
+
+  <!-- Live Logs -->
+  <div class="card" id="logs-section">
+    <div class="section-header">
+      <div class="card-title">Live Logs</div>
+      <span class="count-badge" id="logs-count">—</span>
+    </div>
+    <pre id="logs-output" style="font-size:12px;color:var(--muted);max-height:300px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;"></pre>
   </div>
 
 </main>
@@ -520,9 +504,7 @@
             borderWidth: 1,
             titleColor: '#8b949e',
             bodyColor: '#e6edf3',
-            callbacks: {
-              label: ctx => ' ' + fmt$(ctx.parsed.y),
-            }
+            callbacks: { label: ctx => ' ' + fmt$(ctx.parsed.y) }
           }
         },
         scales: {
@@ -532,10 +514,7 @@
           },
           y: {
             grid: { color: 'rgba(48,54,61,0.5)', drawBorder: false },
-            ticks: {
-              color: '#8b949e',
-              callback: v => fmt$(v)
-            }
+            ticks: { color: '#8b949e', callback: v => fmt$(v) }
           }
         }
       }
@@ -555,8 +534,6 @@
 
     const labels = series.map(p => fmtTime(p.ts));
     const values = series.map(p => p.pnl_cumulative);
-
-    // Color line green/red based on overall direction
     const lastVal = values[values.length - 1];
     const lineColor = lastVal >= 0 ? '#3fb950' : '#f85149';
     const fillColor = lastVal >= 0 ? 'rgba(63,185,80,0.08)' : 'rgba(248,81,73,0.08)';
@@ -573,67 +550,51 @@
     if (!m) return;
     lastMetrics = m;
 
-    // Portfolio card
+    // Portfolio
     $('kpi-portfolio').textContent = '$' + m.portfolio_value.toFixed(2);
     $('kpi-portfolio-sub').innerHTML =
       '<span class="muted">cash</span> $' + m.clob_cash.toFixed(2) +
       ' &nbsp;·&nbsp; <span class="muted">pos</span> $' + m.position_value.toFixed(2);
 
-    // P&L card
+    // P&L
     const pnlEl = $('kpi-pnl');
     pnlEl.textContent = fmt$(m.total_pnl);
     pnlEl.className = 'kpi-value ' + colorClass(m.total_pnl);
-    $('kpi-pnl-sub').innerHTML = '<span class="' + colorClass(m.return_pct) + '">' + fmtPct(m.return_pct) + '</span> return';
+    $('kpi-pnl-sub').innerHTML =
+      '<span class="' + colorClass(m.return_pct) + '">' + fmtPct(m.return_pct) + '</span> return';
 
-    // Drawdown card
+    // Drawdown
     const ddEl = $('kpi-drawdown');
-    const ddSub = $('kpi-drawdown-sub');
     ddEl.textContent = m.drawdown_pct.toFixed(2) + '%';
-    if (m.drawdown_pct > 10) {
-      ddEl.className = 'kpi-value red';
-    } else if (m.drawdown_pct > 5) {
-      ddEl.className = 'kpi-value yellow';
-    } else {
-      ddEl.className = 'kpi-value muted';
-    }
-    ddSub.textContent = 'peak $' + m.peak_bankroll.toFixed(2);
+    ddEl.className = m.drawdown_pct > 10 ? 'kpi-value red'
+                   : m.drawdown_pct > 5  ? 'kpi-value yellow'
+                   : 'kpi-value muted';
+    $('kpi-drawdown-sub').textContent = 'peak $' + m.peak_bankroll.toFixed(2);
 
-    // Win rate card
+    // Win rate
     const wrEl = $('kpi-winrate');
     if (m.win_rate === null || m.win_rate === undefined) {
       wrEl.textContent = 'N/A';
       wrEl.className = 'kpi-value muted';
       $('kpi-winrate-sub').textContent = 'no resolved trades';
     } else {
-      const pct = (m.win_rate * 100).toFixed(1);
-      wrEl.textContent = pct + '%';
+      wrEl.textContent = (m.win_rate * 100).toFixed(1) + '%';
       wrEl.className = 'kpi-value ' + (m.win_rate >= 0.5 ? 'green' : 'red');
       $('kpi-winrate-sub').textContent = m.total_resolved + ' resolved';
     }
 
-    // Trades card
+    // Signals / trades
     $('kpi-trades').textContent = m.total_signals;
     $('kpi-trades-sub').textContent = m.active_positions + ' positions open';
 
-    // Mode badge
-    const modeBadge = $('mode-badge');
-    // We'll determine paper mode from positions data later; default from metrics
-    const isPaper = m.kill_switch === false; // will be overridden by positions
-
     // Kill switch banner
-    if (m.kill_switch) {
-      $('kill-banner').style.display = 'block';
-    }
+    if (m.kill_switch) $('kill-banner').style.display = 'block';
 
     // Last scan status
     const scanEl = $('scan-status');
     if (m.last_scan_ago_sec !== null && m.last_scan_ago_sec !== undefined) {
       scanEl.textContent = 'scan ' + fmtDuration(m.last_scan_ago_sec) + ' ago';
-      if (m.last_scan_ago_sec > 60) {
-        scanEl.className = 'stale';
-      } else {
-        scanEl.className = '';
-      }
+      scanEl.className = m.last_scan_ago_sec > 120 ? 'stale' : '';
     } else {
       scanEl.textContent = 'scan: —';
       scanEl.className = '';
@@ -648,7 +609,7 @@
 
     const tbody = $('trades-body');
     if (trades.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="10"><div class="empty-state"><div class="icon">📡</div>No 5-min signals yet</div></td></tr>';
+      tbody.innerHTML = '<tr><td colspan="9"><div class="empty-state"><div class="icon">📡</div>No signals yet</div></td></tr>';
       return;
     }
 
@@ -664,19 +625,24 @@
         ? '<span class="result-lost">LOST</span>'
         : '<span class="result-open">open</span>';
 
-      const pnlStr = t.pnl !== null ? ' (' + fmt$(t.pnl) + ')' : '';
+      const pnlStr = t.pnl !== null
+        ? ' <span class="muted" style="font-size:11px">(' + fmt$(t.pnl) + ')</span>'
+        : '';
+
+      const strat = t.signal_type
+        ? '<span class="badge badge-signal">' + esc(t.signal_type) + '</span>'
+        : '<span class="muted">—</span>';
 
       html += `<tr>
         <td>${fmtTime(t.ts)}</td>
         <td><span class="market-name" title="${esc(t.market)}">${esc(t.market)}</span></td>
         <td>${sideHtml}</td>
         <td>${t.price.toFixed(3)}</td>
-        <td>${t.model_p.toFixed(3)}</td>
+        <td>${t.model_p > 0 ? t.model_p.toFixed(3) : '—'}</td>
         <td class="${t.ev > 0 ? 'green' : 'red'}">${t.ev.toFixed(4)}</td>
-        <td>${t.signal_strength.toFixed(2)}</td>
-        <td class="${t.pct_move > 0 ? 'green' : t.pct_move < 0 ? 'red' : 'muted'}">${t.pct_move.toFixed(3)}%</td>
+        <td>${strat}</td>
         <td>$${t.stake_usd.toFixed(2)}</td>
-        <td>${outcomeHtml}${pnlStr ? '<span class="muted" style="font-size:11px;margin-left:3px">' + pnlStr + '</span>' : ''}</td>
+        <td>${outcomeHtml}${pnlStr}</td>
       </tr>`;
     }
     tbody.innerHTML = html;
@@ -688,12 +654,9 @@
     const positions = data.positions || [];
     $('positions-count').textContent = positions.length;
 
-    const tbody = $('positions-body');
-
-    // Determine paper mode from positions
     const hasPaper = positions.some(p => p.paper === true);
     const hasLive  = positions.some(p => p.paper === false);
-    const modeBadge = $('mode-badge');
+    const modeBadge  = $('mode-badge');
     const paperBanner = $('paper-banner');
 
     if (hasPaper && !hasLive) {
@@ -704,10 +667,9 @@
       modeBadge.className = 'badge badge-live';
       modeBadge.textContent = 'LIVE';
       paperBanner.style.display = 'none';
-    } else if (lastMetrics) {
-      // No positions to infer from — keep badge as is
     }
 
+    const tbody = $('positions-body');
     if (positions.length === 0) {
       tbody.innerHTML = '<tr><td colspan="9"><div class="empty-state"><div class="icon">💤</div>No open positions</div></td></tr>';
       return;
@@ -719,27 +681,41 @@
         ? '<span class="side-yes">YES</span>'
         : '<span class="side-no">NO</span>';
 
-      const sigBadge = p.signal_type === '5min_updown'
-        ? '<span class="badge badge-5min">5min</span>'
-        : '<span class="badge badge-legacy">legacy</span>';
+      const stratBadge = p.signal_type
+        ? '<span class="badge badge-signal">' + esc(p.signal_type) + '</span>'
+        : '<span class="muted">—</span>';
 
-      const upnlCls = colorClass(p.unrealized_pnl);
-
-      const paperStr = p.paper ? '<span class="muted" style="font-size:11px">paper</span>' : '<span class="green" style="font-size:11px">live</span>';
+      const modeStr = p.paper
+        ? '<span class="muted" style="font-size:11px">paper</span>'
+        : '<span class="green" style="font-size:11px">live</span>';
 
       html += `<tr>
         <td><span class="market-name" title="${esc(p.question)}">${esc(p.question)}</span></td>
-        <td>${sigBadge}</td>
+        <td>${stratBadge}</td>
         <td>${sideHtml}</td>
         <td>${p.entry_price.toFixed(3)}</td>
         <td>${p.current_price.toFixed(3)}</td>
         <td>${p.shares}</td>
-        <td class="${upnlCls}">${fmt$(p.unrealized_pnl)}</td>
+        <td class="${colorClass(p.unrealized_pnl)}">${fmt$(p.unrealized_pnl)}</td>
         <td>$${p.stake_usd.toFixed(2)}</td>
-        <td>${paperStr}</td>
+        <td>${modeStr}</td>
       </tr>`;
     }
     tbody.innerHTML = html;
+  }
+
+  // ── Logs ─────────────────────────────────────────────────────────────────────
+  async function updateLogs() {
+    try {
+      const data = await apiFetch('/api/logs');
+      const lines = data.lines || [];
+      $('logs-count').textContent = lines.length + ' lines';
+      const el = $('logs-output');
+      el.textContent = lines.join('\n');
+      el.scrollTop = el.scrollHeight;
+    } catch(e) {
+      // Non-critical — just skip
+    }
   }
 
   // ── Main Refresh ─────────────────────────────────────────────────────────────
@@ -747,10 +723,10 @@
     const errEl = $('api-error');
     try {
       const [metrics, tradesData, posData, chartData] = await Promise.all([
-        apiFetch('/metrics'),
-        apiFetch('/trades?n=20'),
-        apiFetch('/positions'),
-        apiFetch('/chart/pnl'),
+        apiFetch('/api/metrics'),
+        apiFetch('/api/trades?n=20'),
+        apiFetch('/api/positions'),
+        apiFetch('/api/chart/pnl'),
       ]);
 
       errEl.style.display = 'none';
@@ -758,14 +734,13 @@
       updateTradesTable(tradesData);
       updatePositionsTable(posData);
       updateChart(chartData);
-
       $('updated-time').textContent = 'updated ' + new Date().toLocaleTimeString('en-US', {hour12: false});
 
     } catch(e) {
       console.warn('API error:', e);
       errEl.style.display = 'block';
-      // Keep showing last known values — don't clear the UI
     }
+    updateLogs();
   }
 
   // ── Countdown ────────────────────────────────────────────────────────────────

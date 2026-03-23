@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """
 Polymarket Bot — Dashboard API
+
 Endpoints:
-  GET /          — health
-  GET /status    — bankroll, mode, uptime
-  GET /metrics   — portfolio value, P&L, drawdown
-  GET /trades    — recent trade signals
+  GET /          — health check
+  GET /status    — bankroll, uptime, active positions count
+  GET /metrics   — portfolio value, P&L, drawdown, win rate
+  GET /trades    — recent trade signals (all strategies)
   GET /positions — open positions with live prices
-  GET /kpi       — win rate, resolved stats
-  GET /chart/pnl — cumulative P&L series
+  GET /kpi       — win rate, resolved stats, avg EV
+  GET /chart/pnl — cumulative P&L time series
 """
 
 import argparse
@@ -162,9 +163,7 @@ def metrics():
     wins     = [e for e in resolved if e.get("pnl", 0) > 0]
     win_rate = round(len(wins) / len(resolved), 3) if resolved else None
 
-    signals  = [e for e in log if e.get("event") == "signal" and e.get("signal_type") == "5min_updown"]
-    arbs     = [e for e in log if e.get("event") == "spread_arb"]
-
+    signals  = [e for e in log if e.get("event") == "signal"]
     scans    = [e for e in log if e.get("event") == "scan_complete"]
     last_scan_ago = None
     if scans:
@@ -191,7 +190,6 @@ def metrics():
         "win_rate":           win_rate,
         "total_resolved":     len(resolved),
         "total_signals":      len(signals),
-        "total_arbs":         len(arbs),
         "last_scan_ago_sec":  last_scan_ago,
         "kill_switch":        any(e.get("event") == "kill_switch" for e in log),
         "uptime":             _fmt_duration(time.time() - START_TIME),
@@ -200,8 +198,7 @@ def metrics():
 @app.get("/trades", tags=["Bot"], dependencies=[Depends(check_auth)])
 def trades(n: int = Query(default=50, le=500)):
     log = read_log(2000)
-    # Only 5min_updown trades
-    signals = [e for e in log if e.get("event") == "signal" and e.get("signal_type") == "5min_updown"]
+    signals = [e for e in log if e.get("event") == "signal"]
     signals = signals[-n:]
     signals.reverse()
 
@@ -220,10 +217,7 @@ def trades(n: int = Query(default=50, le=500)):
             "model_p":        round(e.get("model_p", 0), 3),
             "ev":             round(e.get("ev", 0), 4),
             "stake_usd":      round(e.get("stake", 0), 2),
-            "signal_strength": round(e.get("signal_strength", 0), 2),
-            "confidence":     round(e.get("confidence", 0), 2),
-            "pct_move":       round(e.get("pct_move", 0) * 100, 3),
-            "minutes_left":   e.get("minutes_left"),
+            "signal_type":    e.get("signal_type", ""),
             "paper":          e.get("paper", True),
             "outcome":        ("won" if res and res.get("pnl", 0) > 0
                                else "lost" if res and res.get("pnl", 0) <= 0
@@ -258,8 +252,7 @@ def positions():
             "paper":          pos.get("paper", True),
             "entry_time":     pos.get("entry_time"),
         })
-    # Sort: 5min_updown first, then legacy
-    rows.sort(key=lambda r: (0 if r["signal_type"] == "5min_updown" else 1))
+    rows.sort(key=lambda r: r.get("entry_time", ""), reverse=True)
     return {"count": len(rows), "positions": rows}
 
 @app.get("/kpi", tags=["Bot"], dependencies=[Depends(check_auth)])
@@ -267,36 +260,32 @@ def kpi():
     state   = read_state()
     entries = read_log(5000)
 
-    resolved = [e for e in entries if e.get("event") == "position_resolved"]
-    signals  = [e for e in entries if e.get("event") == "signal" and e.get("signal_type") == "5min_updown"]
-    arbs     = [e for e in entries if e.get("event") == "spread_arb"]
-    scans    = [e for e in entries if e.get("event") == "scan_complete"]
+    resolved  = [e for e in entries if e.get("event") == "position_resolved"]
+    signals   = [e for e in entries if e.get("event") == "signal"]
+    scans     = [e for e in entries if e.get("event") == "scan_complete"]
 
     wins   = [e for e in resolved if e.get("pnl", 0) > 0]
     losses = [e for e in resolved if e.get("pnl", 0) <= 0]
 
     evs    = [e.get("ev",    0) for e in signals]
     stakes = [e.get("stake", 0) for e in signals]
-    strs   = [e.get("signal_strength", 0) for e in signals]
 
     last_scan = scans[-1] if scans else {}
 
     return {
-        "win_rate":        round(len(wins) / len(resolved), 3) if resolved else None,
-        "total_resolved":  len(resolved),
-        "total_wins":      len(wins),
-        "total_losses":    len(losses),
-        "total_won_usd":   round(sum(e.get("pnl", 0) for e in wins),   2),
-        "total_lost_usd":  round(sum(e.get("pnl", 0) for e in losses), 2),
-        "avg_win_usd":     round(sum(e.get("pnl", 0) for e in wins)   / len(wins),   2) if wins   else None,
-        "avg_loss_usd":    round(sum(e.get("pnl", 0) for e in losses) / len(losses), 2) if losses else None,
-        "total_signals":   len(signals),
-        "total_arbs":      len(arbs),
-        "avg_ev":          round(float(np.mean(evs)),    4) if evs    else None,
-        "avg_stake":       round(float(np.mean(stakes)), 2) if stakes else None,
-        "avg_strength":    round(float(np.mean(strs)),   2) if strs   else None,
-        "total_scans":     len(scans),
-        "last_scan":       last_scan,
+        "win_rate":       round(len(wins) / len(resolved), 3) if resolved else None,
+        "total_resolved": len(resolved),
+        "total_wins":     len(wins),
+        "total_losses":   len(losses),
+        "total_won_usd":  round(sum(e.get("pnl", 0) for e in wins),   2),
+        "total_lost_usd": round(sum(e.get("pnl", 0) for e in losses), 2),
+        "avg_win_usd":    round(sum(e.get("pnl", 0) for e in wins)   / len(wins),   2) if wins   else None,
+        "avg_loss_usd":   round(sum(e.get("pnl", 0) for e in losses) / len(losses), 2) if losses else None,
+        "total_signals":  len(signals),
+        "avg_ev":         round(float(np.mean(evs)),    4) if evs    else None,
+        "avg_stake":      round(float(np.mean(stakes)), 2) if stakes else None,
+        "total_scans":    len(scans),
+        "last_scan":      last_scan,
     }
 
 @app.get("/chart/pnl", tags=["Charts"], dependencies=[Depends(check_auth)])
