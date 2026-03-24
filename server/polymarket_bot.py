@@ -148,6 +148,8 @@ class BotState:
     resolved_positions:   List  = None   # last 100 resolved positions
     clob_cash:            float = 0.0    # last known on-chain USDC cash
     scans_since_sl_check: int   = 0
+    daily_start_bankroll: float = 0.0   # bankroll at 6 AM — daily drawdown reference
+    daily_reset_date:     str   = ""    # YYYY-MM-DD of last daily reset
 
     def __post_init__(self):
         if self.active_positions  is None: self.active_positions  = {}
@@ -163,6 +165,8 @@ def load_state(bankroll: float) -> BotState:
             d.setdefault("resolved_positions", [])
             d.setdefault("clob_cash", 0.0)
             d.setdefault("scans_since_sl_check", 0)
+            d.setdefault("daily_start_bankroll", 0.0)
+            d.setdefault("daily_reset_date", "")
             known = {f.name for f in BotState.__dataclass_fields__.values()}
             state = BotState(**{k: v for k, v in d.items() if k in known})
             log.info(f"Resumed state: bankroll=${state.current_bankroll:.2f}, "
@@ -354,18 +358,48 @@ def check_stop_loss(state: BotState, clob_client: Optional["ClobClient"]) -> Non
 
 
 # ──────────────────────────────────────────────────────────────────
+# DAILY DRAWDOWN RESET (6 AM UTC)
+# ──────────────────────────────────────────────────────────────────
+DAILY_RESET_HOUR = 6  # UTC
+
+def reset_daily_drawdown_if_needed(state: BotState) -> None:
+    """Reset the drawdown reference to current bankroll at 6 AM UTC each day."""
+    now = datetime.now(timezone.utc)
+    today = now.strftime("%Y-%m-%d")
+    if now.hour >= DAILY_RESET_HOUR and state.daily_reset_date != today:
+        prev = state.daily_start_bankroll
+        state.daily_start_bankroll = state.current_bankroll
+        state.daily_reset_date = today
+        log.info(
+            f"  [DAY RESET] Daily drawdown reference: ${prev:.2f} → ${state.current_bankroll:.2f}"
+        )
+        audit("daily_reset", {
+            "date": today,
+            "bankroll": state.current_bankroll,
+            "prev_reference": prev,
+        })
+        save_state(state)
+
+
+# ──────────────────────────────────────────────────────────────────
 # KILL SWITCH
 # ──────────────────────────────────────────────────────────────────
 def check_kill_switch(state: BotState) -> bool:
-    if state.peak_bankroll <= 0:
+    # Use today's 6 AM bankroll as reference; fall back to peak if not yet set
+    ref = state.daily_start_bankroll if state.daily_start_bankroll > 0 else state.peak_bankroll
+    if ref <= 0:
         return False
-    drawdown_pct = (state.peak_bankroll - state.current_bankroll) / state.peak_bankroll * 100
+    drawdown_pct = (ref - state.current_bankroll) / ref * 100
     if drawdown_pct >= MAX_DRAWDOWN_PCT:
         log.error(
-            f"KILL SWITCH TRIGGERED: drawdown={drawdown_pct:.1f}% "
-            f"(limit={MAX_DRAWDOWN_PCT}%). Halting all trading."
+            f"KILL SWITCH TRIGGERED: drawdown={drawdown_pct:.1f}% from today's 6AM ref "
+            f"${ref:.2f} (limit={MAX_DRAWDOWN_PCT}%). Halting all trading."
         )
-        audit("kill_switch", {"drawdown_pct": drawdown_pct, "bankroll": state.current_bankroll})
+        audit("kill_switch", {
+            "drawdown_pct": drawdown_pct,
+            "reference_bankroll": ref,
+            "bankroll": state.current_bankroll,
+        })
         return True
     return False
 
@@ -657,6 +691,7 @@ def run_scan(client: Optional["ClobClient"], state: BotState, paper: bool) -> No
     resolve_positions(state)
     check_stop_loss(state, client)
     sync_real_balance(state, clob_client=client)
+    reset_daily_drawdown_if_needed(state)
 
     if check_kill_switch(state):
         return
