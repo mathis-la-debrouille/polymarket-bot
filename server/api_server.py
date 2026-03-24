@@ -99,7 +99,7 @@ def _get_live_price(token_id: str, fallback: float) -> float:
         return fallback
     try:
         r = requests.get("https://clob.polymarket.com/midpoint",
-                         params={"token_id": token_id}, timeout=4)
+                         params={"token_id": token_id}, timeout=2)
         return float(r.json().get("mid", fallback))
     except Exception:
         return fallback
@@ -252,7 +252,7 @@ def positions():
             "paper":          pos.get("paper", True),
             "entry_time":     pos.get("entry_time"),
         })
-    rows.sort(key=lambda r: r.get("entry_time", ""), reverse=True)
+    rows.sort(key=lambda r: r.get("entry_time") or "", reverse=True)
     return {"count": len(rows), "positions": rows}
 
 @app.get("/kpi", tags=["Bot"], dependencies=[Depends(check_auth)])

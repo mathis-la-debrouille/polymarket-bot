@@ -52,7 +52,7 @@ def ssh_run(command: str, timeout: int = 15) -> tuple[int, str, str]:
 
 # ── Remote API proxy ──────────────────────────────────────────────────────────
 async def remote_get(path: str, params: dict = None) -> dict:
-    async with httpx.AsyncClient(timeout=12) as client:
+    async with httpx.AsyncClient(timeout=20) as client:
         resp = await client.get(
             f"{REMOTE_API}{path}",
             params=params,

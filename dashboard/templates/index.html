@@ -226,7 +226,9 @@
 <div id="tab-overview" class="tab-panel active">
   <div id="chart-wrap">
     <div class="card-title">Cumulative P&amp;L</div>
-    <canvas id="pnl-chart" style="height:260px"></canvas>
+    <div style="position:relative;height:260px">
+      <canvas id="pnl-chart"></canvas>
+    </div>
   </div>
   <div class="two-col">
     <div class="card">
@@ -744,19 +746,43 @@ function apiFetch(path, params) {
 }
 
 // ── Refresh ────────────────────────────────────────────────────────────────
+function renderAll() {
+  updateKPI(S.metrics);
+  renderStats(S.kpi, S.metrics);
+  renderScans(S.scans);
+  renderSignals();
+  renderPositions();
+  renderDebugEvents();
+}
+
 function refresh() {
-  Promise.all([apiFetch('/api/metrics'), apiFetch('/api/kpi')]).then(function(res) {
-    S.metrics = res[0];
-    S.kpi     = res[1];
-    updateKPI(res[0]);
-    if (S.currentTab === 'overview') renderStats(res[1], res[0]);
-    return apiFetch('/api/debug/scans', {n:5});
-  }).then(function(scansData) {
-    S.scans = scansData.scans || [];
-    if (S.currentTab === 'overview') renderScans(S.scans);
-    return apiFetch('/api/chart/pnl');
-  }).then(function(chartData) {
-    updateChart(chartData);
+  Promise.all([
+    apiFetch('/api/metrics'),
+    apiFetch('/api/kpi'),
+    apiFetch('/api/signals/recent', {n:200}),
+    apiFetch('/api/positions'),
+    apiFetch('/api/debug/scans', {n:5}),
+    apiFetch('/api/debug/events', {n:200}),
+    apiFetch('/api/chart/pnl'),
+  ]).then(function(res) {
+    S.metrics      = res[0];
+    S.kpi          = res[1];
+    S.signals      = res[2].signals || [];
+    S.positions    = res[3].positions || [];
+    S.scans        = res[4].scans || [];
+    S.debugEvents  = res[5].events || [];
+
+    // rebuild strategy filter options
+    var strategies = [];
+    S.signals.forEach(function(s) { if (s.strategy && strategies.indexOf(s.strategy) < 0) strategies.push(s.strategy); });
+    var sel = document.getElementById('sig-strategy');
+    var cur = sel.value;
+    sel.innerHTML = '<option value="">All</option>' + strategies.map(function(s) {
+      return '<option value="' + esc(s) + '"' + (s===cur?' selected':'') + '>' + esc(s) + '</option>';
+    }).join('');
+
+    renderAll();
+    updateChart(res[6]);
     document.getElementById('updated').textContent = 'updated ' + new Date().toLocaleTimeString();
     document.getElementById('conn-dot').className = 'ok';
   }).catch(function(e) {
@@ -771,36 +797,7 @@ function refresh() {
   }).catch(function() {});
 }
 
-function refreshTab(name) {
-  if (name === 'signals') {
-    apiFetch('/api/signals/recent', {n:200}).then(function(data) {
-      S.signals = data.signals || [];
-      var strategies = [];
-      S.signals.forEach(function(s) { if (s.strategy && strategies.indexOf(s.strategy) < 0) strategies.push(s.strategy); });
-      var sel = document.getElementById('sig-strategy');
-      var cur = sel.value;
-      sel.innerHTML = '<option value="">All</option>' + strategies.map(function(s) {
-        return '<option value="' + esc(s) + '"' + (s===cur?' selected':'') + '>' + esc(s) + '</option>';
-      }).join('');
-      renderSignals();
-    }).catch(function(e) { showToast('Signals fetch failed: ' + e.message); });
-  } else if (name === 'positions') {
-    apiFetch('/api/positions').then(function(data) {
-      S.positions = data.positions || [];
-      renderPositions();
-    }).catch(function(e) { showToast('Positions fetch failed: ' + e.message); });
-  } else if (name === 'debug') {
-    apiFetch('/api/debug/events', {n:200}).then(function(data) {
-      S.debugEvents = data.events || [];
-      renderDebugEvents();
-    }).catch(function(e) { showToast('Debug fetch failed: ' + e.message); });
-  } else if (name === 'overview') {
-    renderStats(S.kpi, S.metrics);
-    renderScans(S.scans);
-  }
-}
-
-// ── Tab switch ─────────────────────────────────────────────────────────────
+// ── Tab switch — instant, no fetch ─────────────────────────────────────────
 function switchTab(name) {
   S.currentTab = name;
   var tabs = ['overview','signals','positions','logs','debug'];
@@ -809,7 +806,6 @@ function switchTab(name) {
   });
   document.querySelectorAll('.tab-panel').forEach(function(p) { p.classList.remove('active'); });
   document.getElementById('tab-' + name).classList.add('active');
-  refreshTab(name);
 }
 
 // ── Bot controls ───────────────────────────────────────────────────────────
@@ -824,15 +820,14 @@ function botAction(action) {
 // ── Countdown loop ─────────────────────────────────────────────────────────
 var refreshTimer = null;
 function startRefreshLoop() {
-  S.countdown = 5;
+  S.countdown = 15;
   clearInterval(refreshTimer);
   refreshTimer = setInterval(function() {
     S.countdown--;
     document.getElementById('countdown').textContent = 'refresh in ' + S.countdown + 's  \u00B7  ';
     if (S.countdown <= 0) {
-      S.countdown = 5;
+      S.countdown = 15;
       refresh();
-      if (S.currentTab === 'positions') refreshTab('positions');
     }
   }, 1000);
 }
@@ -842,7 +837,6 @@ document.addEventListener('DOMContentLoaded', function() {
   initChart();
   connectSSE();
   refresh();
-  refreshTab('overview');
   startRefreshLoop();
 });
 </script>
