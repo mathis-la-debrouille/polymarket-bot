@@ -341,6 +341,74 @@ def chart_pnl():
         "series":            deduped,
     }
 
+@app.get("/signals/recent", tags=["Bot"], dependencies=[Depends(check_auth)])
+def signals_recent(n: int = Query(default=100, le=500)):
+    """Recent traded signals with full signal breakdown (bm, ofi, mom, mc)."""
+    log = read_log(3000)
+    events = [e for e in log if e.get("event") == "signal"]
+    events = events[-n:]
+    events.reverse()
+    resolved_map = {e.get("market_id"): e for e in log if e.get("event") == "position_resolved"}
+    result = []
+    for e in events:
+        mid = e.get("market_id", "")
+        res = resolved_map.get(mid)
+        sigs = e.get("signals", {})
+        result.append({
+            "ts":          e.get("ts"),
+            "market_id":   mid,
+            "market":      e.get("question", "?")[:65],
+            "side":        e.get("side"),
+            "price":       round(e.get("price", 0), 4),
+            "model_p":     round(e.get("model_p", 0), 4),
+            "confidence":  round(e.get("confidence", 0), 4),
+            "ev":          round(e.get("ev", 0), 4),
+            "stake_usd":   round(e.get("stake", 0), 2),
+            "kelly":       round(e.get("kelly", 0), 4),
+            "strategy":    e.get("strategy", ""),
+            "regime":      e.get("regime", ""),
+            "T_remaining": round(e.get("T_remaining", 0), 2),
+            "paper":       e.get("paper", True),
+            "bm":          round(sigs.get("bm", 0), 4) if sigs else None,
+            "ofi":         round(sigs.get("ofi", 0), 4) if sigs else None,
+            "mom":         round(sigs.get("mom", 0), 4) if sigs else None,
+            "mc":          round(sigs.get("mc", 0), 4) if sigs else None,
+            "outcome":     ("won" if res and res.get("pnl", 0) > 0
+                            else "lost" if res and res.get("pnl", 0) <= 0
+                            else "open"),
+            "pnl":         round(res["pnl"], 4) if res else None,
+        })
+    return {"count": len(result), "signals": result}
+
+
+@app.get("/debug/state", tags=["Debug"], dependencies=[Depends(check_auth)])
+def debug_state():
+    """Raw bot state JSON."""
+    return read_state()
+
+
+@app.get("/debug/events", tags=["Debug"], dependencies=[Depends(check_auth)])
+def debug_events(
+    event: str = Query(default="", description="filter by event type"),
+    n: int = Query(default=100, le=1000),
+):
+    """Recent audit log entries, optionally filtered by event type."""
+    entries = read_log(max(n * 3, 1000))
+    if event:
+        entries = [e for e in entries if e.get("event") == event]
+    entries = list(reversed(entries[-n:]))
+    return {"count": len(entries), "events": entries}
+
+
+@app.get("/debug/scans", tags=["Debug"], dependencies=[Depends(check_auth)])
+def debug_scans(n: int = Query(default=20, le=100)):
+    """Recent scan_complete events."""
+    entries = read_log(2000)
+    scans = [e for e in entries if e.get("event") == "scan_complete"]
+    scans = list(reversed(scans[-n:]))
+    return {"count": len(scans), "scans": scans}
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", default="0.0.0.0")

@@ -760,6 +760,7 @@ def run_scan(client: Optional["ClobClient"], state: BotState, paper: bool) -> No
                 "regime":       sig.get("regime", ""),
                 "T_remaining":  sig.get("T_remaining", 0),
                 "paper":        paper,
+                "signals":      sig.get("signals", {}),
             })
 
             result = submit_order(client, token_id, "BUY", bet_price, stake, paper)
