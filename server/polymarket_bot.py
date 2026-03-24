@@ -751,7 +751,10 @@ def run_scan(client: Optional["ClobClient"], state: BotState, paper: bool) -> No
                 continue
 
             kelly_frac = sig.get("kelly_fraction", 0.0)
-            stake = 1.0  # flat $1 per trade
+            stake = min(kelly_frac * state.current_bankroll, MAX_STAKE_USD)
+            if stake < MIN_STAKE_USD:
+                log.debug(f"  [PASS] {question[:40]} — kelly stake ${stake:.3f} < ${MIN_STAKE_USD} min")
+                continue
             if state.current_bankroll < MIN_STAKE_USD:
                 log.info("  Bankroll below minimum — skipping")
                 break
