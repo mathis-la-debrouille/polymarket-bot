@@ -76,6 +76,18 @@ except ImportError:
     print("[!] py-clob-client not found. Install with: pip install py-clob-client")
     print("    Running in paper-mode only until installed.\n")
 
+try:
+    from signal_updown import (
+        compute_updown_signal,
+        is_updown_market,
+        start_rtds_stream,
+    )
+    SIGNAL_AVAILABLE = True
+except ImportError:
+    SIGNAL_AVAILABLE = False
+    log_bootstrap = logging.getLogger(__name__)
+    log_bootstrap.warning("[!] signal_updown.py not found — bot will run but place no trades")
+
 # ──────────────────────────────────────────────────────────────────
 # CONFIG
 # ──────────────────────────────────────────────────────────────────
@@ -635,17 +647,144 @@ def run_scan(client: Optional["ClobClient"], state: BotState, paper: bool) -> No
         return
 
     # ══════════════════════════════════════════════════════════════
-    # YOUR STRATEGY — implement your signal logic here
+    # STRATEGY — Crypto Up/Down markets via signal_updown.py
     # ══════════════════════════════════════════════════════════════
-    # See the docstring above for the recommended interface.
-    # Remove this comment block and replace with your own code.
     signals_found = 0
 
-    # TODO: fetch markets, compute signals, submit orders
-    # Example:
-    #   markets = fetch_markets(limit=50)
-    #   for market in markets:
-    #       ...
+    if not SIGNAL_AVAILABLE:
+        log.warning("  signal_updown not available — no trades this scan")
+    else:
+        markets = fetch_markets(
+            active=True, limit=500,
+            order="volume", tag="crypto",
+        )
+        updown_markets = [m for m in markets if is_updown_market(m.get("question", ""))]
+        log.info(f"  Found {len(updown_markets)} Up/Down markets")
+
+        for raw in updown_markets:
+            market_id = raw.get("id", "")
+            question  = raw.get("question", "?")
+
+            if market_id in state.traded_markets:
+                continue
+
+            # Parse clobTokenIds (YES = index 0, NO = index 1)
+            try:
+                clob_ids = raw.get("clobTokenIds") or "[]"
+                if isinstance(clob_ids, str):
+                    clob_ids = json.loads(clob_ids)
+            except Exception:
+                clob_ids = []
+            if len(clob_ids) < 2:
+                continue
+
+            yes_token_id = clob_ids[0]
+            no_token_id  = clob_ids[1]
+
+            # Get YES midprice
+            try:
+                op = raw.get("outcomePrices") or "[]"
+                if isinstance(op, str):
+                    op = json.loads(op)
+                yes_midprice = float(op[0]) if op else 0.0
+            except Exception:
+                yes_midprice = 0.0
+            if yes_midprice <= 0:
+                yes_midprice = get_orderbook_midprice(yes_token_id) or 0.50
+            if not (0.03 < yes_midprice < 0.97):
+                continue
+
+            # Compute signal
+            sig = compute_updown_signal(raw, yes_midprice)
+            if sig is None:
+                continue
+
+            # ── Spread Arb ───────────────────────────────────────────
+            if sig.get("strategy") == "ARB":
+                stake = min(state.current_bankroll * 0.10, MAX_STAKE_USD)
+                if stake >= MIN_STAKE_USD:
+                    no_midprice = 1.0 - yes_midprice
+                    r_yes = submit_order(client, yes_token_id, "BUY",
+                                         yes_midprice, stake / 2, paper)
+                    r_no  = submit_order(client, no_token_id,  "BUY",
+                                         no_midprice,  stake / 2, paper)
+                    if r_yes.get("status") in ("paper", "submitted"):
+                        state.total_trades    += 1
+                        state.current_bankroll = max(0.0, state.current_bankroll - stake)
+                        state.traded_markets.append(market_id)
+                        audit("spread_arb", {
+                            "market_id": market_id, "question": question[:80],
+                            "net_ev":    sig["signals"].get("arb_spread", 0),
+                            "stake":     stake, "paper": paper,
+                        })
+                        save_state(state)
+                        signals_found += 1
+                continue
+
+            # ── Directional / Oracle Latency ─────────────────────────
+            side = sig.get("side", "PASS")
+            if side == "PASS":
+                continue
+
+            kelly_frac = sig.get("kelly_fraction", 0.0)
+            stake = max(kelly_frac * state.current_bankroll, MIN_STAKE_USD)
+            stake = min(stake, MAX_STAKE_USD)
+            if state.current_bankroll < MIN_STAKE_USD:
+                log.info("  Bankroll below minimum — skipping")
+                break
+
+            token_id  = yes_token_id if side == "YES" else no_token_id
+            bet_price = yes_midprice  if side == "YES" else (1.0 - yes_midprice)
+            ev        = sig.get("ev_yes" if side == "YES" else "ev_no", 0.0)
+
+            log.info(
+                f"\n  ✦ SIGNAL  {question[:55]}\n"
+                f"    {side} @ {bet_price:.3f}  model_p={sig['model_p']:.3f}  "
+                f"ev={ev:.4f}  conf={sig['confidence']:.2f}  "
+                f"kelly={kelly_frac:.3f}  T={sig.get('T_remaining',0):.1f}min  "
+                f"strategy={sig['strategy']}"
+            )
+
+            audit("signal", {
+                "market_id":    market_id,
+                "question":     question[:80],
+                "side":         side,
+                "price":        bet_price,
+                "model_p":      sig["model_p"],
+                "ev":           ev,
+                "stake":        stake,
+                "signal_type":  "updown",
+                "strategy":     sig.get("strategy", "DIRECTIONAL"),
+                "confidence":   sig["confidence"],
+                "kelly":        kelly_frac,
+                "regime":       sig.get("regime", ""),
+                "T_remaining":  sig.get("T_remaining", 0),
+                "paper":        paper,
+            })
+
+            result = submit_order(client, token_id, "BUY", bet_price, stake, paper)
+
+            if result.get("status") in ("paper", "submitted"):
+                state.active_positions[market_id] = {
+                    "question":    question,
+                    "side":        side,
+                    "token_id":    token_id,
+                    "yes_token_id": yes_token_id,
+                    "no_token_id":  no_token_id,
+                    "price":       bet_price,
+                    "stake":       stake,
+                    "shares":      math.ceil(stake / bet_price),
+                    "ev":          ev,
+                    "entry_time":  datetime.now(timezone.utc).isoformat(),
+                    "paper":       paper,
+                    "signal_type": "updown",
+                    "strategy":    sig.get("strategy", "DIRECTIONAL"),
+                }
+                state.traded_markets.append(market_id)
+                state.total_trades    += 1
+                state.current_bankroll = max(0.0, state.current_bankroll - stake)
+                save_state(state)
+                signals_found += 1
 
     # ══════════════════════════════════════════════════════════════
 
@@ -728,6 +867,12 @@ def main():
             sys.exit(1)
     else:
         audit("session_start", {"mode": "paper", "bankroll": args.bankroll})
+
+    if SIGNAL_AVAILABLE:
+        try:
+            start_rtds_stream()
+        except Exception as e:
+            log.warning(f"  RTDS start failed ({e}) — using Binance REST fallback")
 
     state = load_state(args.bankroll)
 

@@ -1,0 +1,15 @@
+# ── Polymarket Bot — Server dependencies ────────────────────────────────────
+# Install: pip install -r requirements.txt
+
+# Polymarket CLOB client
+py-clob-client
+
+# Core
+python-dotenv
+requests
+numpy
+scipy
+
+# Dashboard API (api_server.py)
+fastapi
+uvicorn[standard]

@@ -4,10 +4,14 @@
 *.pem
 *.key
 
-# Bot runtime files (stay on server)
+# Bot runtime files (live on server, not in repo)
 bot_state.json
 bot_log.jsonl
 bot_output.log
+api_output.log
+*.bak
+*.bak2
+*.bak3
 
 # Python
 __pycache__/
@@ -16,6 +20,12 @@ __pycache__/
 .venv/
 venv/
 
+# macOS / editors
+.DS_Store
+*.swp
+*.swo
+
 # Outputs
 *.png
 trade_log.csv
+scan_markets.json

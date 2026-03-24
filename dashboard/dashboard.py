@@ -11,6 +11,7 @@ Usage:
 """
 
 import os
+from pathlib import Path
 from typing import Optional
 
 import httpx
@@ -20,7 +21,8 @@ from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
-load_dotenv()
+_HERE = Path(__file__).parent
+load_dotenv(_HERE / ".env")
 
 # ── Config ──────────────────────────────────────────────────────────
 SSH_HOST        = os.environ.get("SSH_HOST",     "YOUR_SERVER_IP")
@@ -55,7 +57,7 @@ async def remote_get(path: str, params: dict = None) -> dict:
 
 # ── App ──────────────────────────────────────────────────────────────
 app = FastAPI(title="Polymarket Dashboard", docs_url=None, redoc_url=None)
-templates = Jinja2Templates(directory="templates")
+templates = Jinja2Templates(directory=str(_HERE / "templates"))
 
 
 @app.get("/", response_class=HTMLResponse)

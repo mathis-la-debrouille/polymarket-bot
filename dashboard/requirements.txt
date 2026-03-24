@@ -1,0 +1,9 @@
+# ── Polymarket Bot — Local Dashboard dependencies ───────────────────────────
+# Install: pip install -r requirements.txt
+
+fastapi
+uvicorn[standard]
+httpx
+paramiko
+jinja2
+python-dotenv
