@@ -103,7 +103,7 @@ FUNDER_ADDRESS = os.environ.get("FUNDER_ADDRESS", "")
 
 # ── Strategy parameters — tune these for your algorithm ──────────
 EV_THRESHOLD      = 0.05    # minimum expected value to place a trade
-MAX_STAKE_USD     = 5.00    # max USD stake per trade
+MAX_STAKE_USD     = 1.00    # max USD stake per trade
 MIN_STAKE_USD     = 1.00    # Polymarket minimum per order
 KELLY_FRACTION    = 0.25    # fraction of Kelly to use (0.25 = quarter-Kelly)
 MAX_DRAWDOWN_PCT  = 30.0    # kill switch: stop if down 30% from peak
@@ -573,6 +573,20 @@ def submit_order(
         return {"status": "error", "reason": str(e)}
 
 
+def purge_legacy_positions(state: BotState) -> None:
+    """Remove positions that have no entry_time — these are legacy/manual positions
+    not placed by the current bot and will never be resolved automatically."""
+    stale = [mid for mid, pos in state.active_positions.items()
+             if not pos.get("entry_time")]
+    if stale:
+        for mid in stale:
+            q = state.active_positions[mid].get("question", mid)[:50]
+            log.info(f"  [PURGE] Removing legacy position: {q}")
+            del state.active_positions[mid]
+        save_state(state)
+        log.info(f"  [PURGE] Removed {len(stale)} legacy position(s)")
+
+
 # ──────────────────────────────────────────────────────────────────
 # MAIN SCAN LOOP
 # ──────────────────────────────────────────────────────────────────
@@ -639,6 +653,7 @@ def run_scan(client: Optional["ClobClient"], state: BotState, paper: bool) -> No
              f"{'PAPER' if paper else 'LIVE'}")
     log.info("─" * 55)
 
+    purge_legacy_positions(state)
     resolve_positions(state)
     check_stop_loss(state, client)
     sync_real_balance(state, clob_client=client)
@@ -724,11 +739,19 @@ def run_scan(client: Optional["ClobClient"], state: BotState, paper: bool) -> No
             # ── Directional / Oracle Latency ─────────────────────────
             side = sig.get("side", "PASS")
             if side == "PASS":
+                conf = sig.get("confidence", 0)
+                t_rem = sig.get("T_remaining", 0)
+                ev_best = max(sig.get("ev_yes", 0), sig.get("ev_no", 0))
+                reasons = []
+                if conf < 0.40: reasons.append(f"conf={conf:.2f}<0.40")
+                if not (1.0 <= t_rem <= 3.5): reasons.append(f"T={t_rem:.1f}min")
+                if ev_best < 0.05: reasons.append(f"ev={ev_best:.3f}<0.05")
+                reason_str = ", ".join(reasons) if reasons else "signal too weak"
+                log.debug(f"  [PASS] {question[:40]} — {reason_str}")
                 continue
 
             kelly_frac = sig.get("kelly_fraction", 0.0)
-            stake = max(kelly_frac * state.current_bankroll, MIN_STAKE_USD)
-            stake = min(stake, MAX_STAKE_USD)
+            stake = 1.0  # flat $1 per trade
             if state.current_bankroll < MIN_STAKE_USD:
                 log.info("  Bankroll below minimum — skipping")
                 break
@@ -737,12 +760,11 @@ def run_scan(client: Optional["ClobClient"], state: BotState, paper: bool) -> No
             bet_price = yes_midprice  if side == "YES" else (1.0 - yes_midprice)
             ev        = sig.get("ev_yes" if side == "YES" else "ev_no", 0.0)
 
+            mode_str = "PAPER" if paper else "LIVE"
             log.info(
-                f"\n  ✦ SIGNAL  {question[:55]}\n"
-                f"    {side} @ {bet_price:.3f}  model_p={sig['model_p']:.3f}  "
-                f"ev={ev:.4f}  conf={sig['confidence']:.2f}  "
-                f"kelly={kelly_frac:.3f}  T={sig.get('T_remaining',0):.1f}min  "
-                f"strategy={sig['strategy']}"
+                f"\n  ✦ [{mode_str}] SIGNAL  {question[:55]}\n"
+                f"    {side} @ {bet_price:.3f}  ev={ev:.4f}  conf={sig['confidence']:.2f}  "
+                f"T={sig.get('T_remaining',0):.1f}min  strategy={sig['strategy']}"
             )
 
             audit("signal", {

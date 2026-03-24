@@ -42,6 +42,7 @@ except ImportError:
 BOT_DIR    = Path(os.environ.get("BOT_DIR", "/home/polybot/app"))
 STATE_FILE = BOT_DIR / "bot_state.json"
 LOG_FILE   = BOT_DIR / "bot_log.jsonl"
+OUTPUT_LOG = Path(os.environ.get("BOT_OUTPUT_LOG", str(BOT_DIR / "bot_output.log")))
 API_TOKEN  = os.environ.get("API_TOKEN", "")
 START_TIME = time.time()
 
@@ -407,6 +408,24 @@ def debug_scans(n: int = Query(default=20, le=100)):
     scans = [e for e in entries if e.get("event") == "scan_complete"]
     scans = list(reversed(scans[-n:]))
     return {"count": len(scans), "scans": scans}
+
+
+@app.get("/logs/tail", tags=["Debug"], dependencies=[Depends(check_auth)])
+def logs_tail(n: int = Query(default=200, le=2000)):
+    """Return the last N lines of the bot output log (human-readable stdout log)."""
+    paths_to_try = [
+        OUTPUT_LOG,
+        Path("/home/polybot/logs/bot.log"),
+        BOT_DIR / "bot_output.log",
+    ]
+    for p in paths_to_try:
+        if p.exists():
+            try:
+                lines = p.read_text(errors="replace").splitlines()
+                return {"lines": lines[-n:], "total": len(lines), "path": str(p)}
+            except Exception as e:
+                continue
+    return {"lines": [], "total": 0, "path": "not found"}
 
 
 if __name__ == "__main__":

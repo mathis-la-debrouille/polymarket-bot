@@ -152,6 +152,30 @@ async def api_debug_scans(n: int = Query(default=20)):
         raise HTTPException(502, str(e))
 
 
+@app.get("/api/logs/tail")
+async def api_logs_tail(n: int = Query(default=200)):
+    try:
+        return await remote_get("/logs/tail", {"n": n})
+    except Exception as e:
+        raise HTTPException(502, str(e))
+
+
+@app.post("/bot/set-mode")
+async def bot_set_mode(mode: str = "paper"):
+    """Switch bot between live and paper mode by editing the systemd service file."""
+    svc = "/etc/systemd/system/polymarket-bot.service"
+    try:
+        # Always strip --live first, then re-add if needed
+        ssh_run(f"sed -i 's/ --live//' {svc}")
+        if mode == "live":
+            ssh_run(f"sed -i 's|polymarket_bot.py|polymarket_bot.py --live|' {svc}")
+        ssh_run("systemctl daemon-reload")
+        code, out, err = ssh_run(f"systemctl restart {BOT_SVC}")
+        return {"ok": code == 0, "mode": mode}
+    except Exception as e:
+        raise HTTPException(502, str(e))
+
+
 # ── Live log streaming (SSE) ──────────────────────────────────────────────────
 @app.get("/stream/logs")
 async def stream_logs(request: Request):
