@@ -19,6 +19,13 @@ echo "  Polymarket Bot — Local Dashboard Setup"
 echo "══════════════════════════════════════════"
 echo ""
 
+# ── Guard: must not run as root ────────────────────────────────────
+if [ "$(id -u)" -eq 0 ]; then
+    echo "  ✗ Do not run this script with sudo."
+    echo "    Run as your normal user:  ./setup.sh"
+    exit 1
+fi
+
 # ── 1. Python check ───────────────────────────────────────────────
 echo "[1/4] Checking Python…"
 if ! command -v $PYTHON &>/dev/null; then
@@ -30,6 +37,13 @@ echo "  ✓ $PY_VER"
 
 # ── 2. Virtual environment ────────────────────────────────────────
 echo "[2/4] Creating virtual environment…"
+
+# Remove stale venv owned by root (common if setup.sh was run with sudo before)
+if [ -d "$VENV_DIR" ] && [ ! -w "$VENV_DIR" ]; then
+    echo "  ! Stale venv owned by root detected — removing it (requires sudo)…"
+    sudo rm -rf "$VENV_DIR"
+fi
+
 if [ ! -d "$VENV_DIR" ]; then
     $PYTHON -m venv "$VENV_DIR"
     echo "  ✓ Virtual env created at $VENV_DIR"
@@ -40,16 +54,19 @@ fi
 # ── 3. Dependencies ───────────────────────────────────────────────
 echo "[3/4] Installing dependencies…"
 "$VENV_DIR/bin/pip" install --quiet --upgrade pip
-"$VENV_DIR/bin/pip" install --quiet -r "${DASHBOARD_DIR}/requirements.txt"
+"$VENV_DIR/bin/pip" install --quiet \
+    fastapi \
+    "uvicorn[standard]" \
+    httpx \
+    paramiko \
+    jinja2 \
+    python-dotenv
 echo "  ✓ Dependencies installed"
 
 # ── 4. Environment file ───────────────────────────────────────────
 echo "[4/4] Checking .env file…"
 if [ ! -f "${DASHBOARD_DIR}/.env" ]; then
-    if [ -f "${DASHBOARD_DIR}/../server/.env.example" ]; then
-        cp "${DASHBOARD_DIR}/../server/.env.example" "${DASHBOARD_DIR}/.env"
-    else
-        cat > "${DASHBOARD_DIR}/.env" <<'ENVEOF'
+    cat > "${DASHBOARD_DIR}/.env" <<'ENVEOF'
 SSH_HOST=YOUR_SERVER_IP
 SSH_USER=root
 SSH_PASSWORD=your_ssh_password
@@ -57,7 +74,6 @@ REMOTE_API=http://YOUR_SERVER_IP:8000
 API_TOKEN=your_secret_token_here
 DASHBOARD_PORT=3000
 ENVEOF
-    fi
     echo ""
     echo "  ⚠️  IMPORTANT: Edit ${DASHBOARD_DIR}/.env and fill in:"
     echo "     SSH_HOST      — your VPS IP address"
@@ -65,6 +81,8 @@ ENVEOF
     echo "     REMOTE_API    — http://YOUR_VPS_IP:8000"
     echo "     API_TOKEN     — same token as on the VPS"
     echo ""
+else
+    echo "  ✓ .env already exists"
 fi
 
 # ── Done ──────────────────────────────────────────────────────────

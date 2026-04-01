@@ -484,14 +484,14 @@ def compute_updown_signal(market: dict, yes_midprice: float) -> dict:
     ev_no  = (1.0 - model_p) - no_price - FEE
 
     # ── Entry gate ────────────────────────────────────────────────────────────
-    MIN_EV         = 0.04
-    MIN_CONFIDENCE = 0.40
+    MIN_EV         = 0.10    # raised from 0.04 — low-EV bets consistently lose
+    MIN_CONFIDENCE = 0.50    # raised from 0.40 — low-confidence bets anti-predictive
     MAX_CONFIDENCE = 0.75    # >0.75 = anti-predictive: 0.8→34% WR, 0.9→26% WR in 9k-trade backtest
-    ENTRY_MIN      = 1.0     # don't enter with < 1 min remaining
-    ENTRY_MAX      = 3.5     # don't enter before 3.5 min remaining
+    ENTRY_MIN      = 3.0     # raised from 1.0 — <3 min remaining = 9% WR historically
+    ENTRY_MAX      = 4.5     # raised from 3.5 — 3-4 min window has best WR (30%)
 
     in_window    = ENTRY_MIN <= T_remaining <= ENTRY_MAX
-    choppy_gate  = not (regime == "choppy" and max(abs(ev_yes), abs(ev_no)) < 0.06)
+    choppy_gate  = (regime != "choppy")  # block ALL choppy — 13.3% WR vs 27.7% normal
     has_edge     = max(abs(ev_yes), abs(ev_no)) > MIN_EV
     has_conf     = MIN_CONFIDENCE <= confidence <= MAX_CONFIDENCE
 

@@ -19,6 +19,15 @@ SAMPLE_STATE = {
     "starting_bankroll": 10.0,
     "bankroll": 9.5,
     "paper": True,
+    "paper_mode": True,
+    "paper_bankroll": 98.0,
+    "paper_starting": 100.0,
+    "paper_total_pnl": -2.0,
+    "paper_trades": 5,
+    "paper_active_positions": {},
+    "paper_traded_markets": [],
+    "paper_daily_start": 100.0,
+    "paper_daily_reset": "",
     "active_positions": {
         "111": {
             "question": "BTC Up or Down?",
@@ -73,6 +82,12 @@ SAMPLE_LOG = [
      "markets_scanned": 10, "signals_fired": 1, "paper": True},
     {"event": "balance_sync", "ts": "2026-03-24T10:00:30+00:00",
      "bankroll": 9.5, "paper": True},
+    {"event": "paper_position_resolved", "ts": "2026-03-24T10:05:00+00:00",
+     "market_id": "p1", "pnl": 0.8, "won": True, "paper": True},
+    {"event": "paper_position_resolved", "ts": "2026-03-24T10:10:00+00:00",
+     "market_id": "p2", "pnl": -1.0, "won": False, "paper": True},
+    {"event": "paper_position_resolved", "ts": "2026-03-24T10:15:00+00:00",
+     "market_id": "p3", "pnl": 0.9, "won": True, "paper": True},
 ]
 
 
@@ -246,3 +261,81 @@ def test_debug_scans(api_client):
     d = r.json()
     assert "scans" in d
     assert d["count"] == 1
+
+
+# ── /chart/paper-pnl ─────────────────────────────────────────────────────────
+
+def test_chart_paper_pnl(api_client):
+    """Paper P&L chart returns series, portfolio, win/loss buckets."""
+    r = auth(api_client, "/chart/paper-pnl")
+    assert r.status_code == 200
+    d = r.json()
+    assert "series" in d
+    assert "portfolio_series" in d
+    assert "hour_buckets" in d
+    assert "win_rate" in d
+    assert "resolved" in d
+    # 3 paper events in fixture: 2 wins, 1 loss
+    assert d["resolved"] == 3
+    assert d["wins"] == 2
+    assert d["losses"] == 1
+    assert abs(d["win_rate"] - 0.667) < 0.01
+    # Last cumulative pnl = 0.8 - 1.0 + 0.9 = 0.7
+    assert abs(d["series"][-1]["pnl"] - 0.7) < 0.01
+    # Portfolio = 100 + cumulative pnl
+    assert abs(d["portfolio_series"][-1]["portfolio"] - 100.7) < 0.01
+    # hour_buckets must have wins+losses per bucket
+    assert isinstance(d["hour_buckets"], list)
+    total_wins   = sum(b["wins"]   for b in d["hour_buckets"])
+    total_losses = sum(b["losses"] for b in d["hour_buckets"])
+    assert total_wins == 2
+    assert total_losses == 1
+
+
+# ── /metrics paper fields ─────────────────────────────────────────────────────
+
+def test_metrics_paper_fields(api_client):
+    """Metrics endpoint must include accurate paper wallet fields from full log scan."""
+    r = auth(api_client, "/metrics")
+    assert r.status_code == 200
+    d = r.json()
+    assert "paper_bankroll" in d
+    assert "paper_win_rate" in d
+    assert "paper_resolved" in d
+    assert "live_mode" in d
+    # paper_mode=True in state → live_mode should be False
+    assert d["live_mode"] is False
+    # Win rate from full log: 2W / 3 resolved = 0.667
+    assert d["paper_resolved"] == 3
+    assert abs(d["paper_win_rate"] - 0.667) < 0.01
+
+
+# ── /bot/set-mode ─────────────────────────────────────────────────────────────
+
+def test_set_mode_paper(api_client, tmp_bot_dir):
+    """POST /bot/set-mode?mode=paper sets paper_mode=True in state file."""
+    r = api_client.post("/bot/set-mode", params={"mode": "paper"},
+                        headers={"Authorization": "Bearer testtoken"})
+    assert r.status_code == 200
+    d = r.json()
+    assert d["ok"] is True
+    assert d["paper_mode"] is True
+    state = json.loads((tmp_bot_dir / "bot_state.json").read_text())
+    assert state["paper_mode"] is True
+
+def test_set_mode_live(api_client, tmp_bot_dir):
+    """POST /bot/set-mode?mode=live sets paper_mode=False in state file."""
+    r = api_client.post("/bot/set-mode", params={"mode": "live"},
+                        headers={"Authorization": "Bearer testtoken"})
+    assert r.status_code == 200
+    d = r.json()
+    assert d["ok"] is True
+    assert d["paper_mode"] is False
+    state = json.loads((tmp_bot_dir / "bot_state.json").read_text())
+    assert state["paper_mode"] is False
+
+def test_set_mode_invalid(api_client):
+    """Invalid mode value should return 400."""
+    r = api_client.post("/bot/set-mode", params={"mode": "invalid"},
+                        headers={"Authorization": "Bearer testtoken"})
+    assert r.status_code == 400

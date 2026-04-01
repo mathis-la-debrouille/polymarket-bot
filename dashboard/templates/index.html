@@ -158,7 +158,14 @@
   #toast { position: fixed; bottom: 20px; right: 20px; background: #21262d; border: 1px solid var(--red); color: var(--red); padding: 10px 16px; border-radius: 8px; font-size: 13px; display: none; z-index: 999; }
 
   /* Chart */
-  #chart-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 14px; margin-bottom: 14px; }
+  #chart-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 14px; margin-bottom: 10px; }
+  .chart-block { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
+
+  /* Time range */
+  .time-range-bar { display: flex; gap: 5px; align-items: center; margin-bottom: 10px; }
+  .tr-btn { padding: 3px 11px; border-radius: 14px; border: 1px solid var(--border); background: transparent; color: var(--muted); cursor: pointer; font-size: 12px; transition: all .15s; }
+  .tr-btn:hover { border-color: var(--blue); color: var(--blue); }
+  .tr-btn.active { background: rgba(88,166,255,.15); border-color: var(--blue); color: var(--blue); font-weight: 600; }
 
   .empty { text-align: center; color: var(--muted); padding: 40px; font-size: 13px; }
 
@@ -191,19 +198,19 @@
 <!-- KPI Row -->
 <div id="kpi-row">
   <div class="kpi-card">
-    <div class="kpi-label">Portfolio</div>
+    <div class="kpi-label">Portfolio + Cash</div>
     <div class="kpi-value neu" id="kpi-portfolio">—</div>
-    <div class="kpi-sub">Starting: <span id="kpi-start">—</span></div>
+    <div class="kpi-sub">Cash: <span id="kpi-cash">—</span> | Pos: <span id="kpi-pos-val">—</span></div>
   </div>
   <div class="kpi-card">
-    <div class="kpi-label">P&amp;L</div>
+    <div class="kpi-label">P&amp;L (Today)</div>
     <div class="kpi-value neu" id="kpi-pnl">—</div>
-    <div class="kpi-sub">Since start</div>
+    <div class="kpi-sub">Since <span id="kpi-start">—</span></div>
   </div>
   <div class="kpi-card">
-    <div class="kpi-label">Return %</div>
+    <div class="kpi-label">Return % (Today)</div>
     <div class="kpi-value neu" id="kpi-return">—</div>
-    <div class="kpi-sub">Total return</div>
+    <div class="kpi-sub">Since 6 AM UTC</div>
   </div>
   <div class="kpi-card">
     <div class="kpi-label">Drawdown</div>
@@ -222,22 +229,134 @@
   </div>
 </div>
 
+<!-- Live Wallet Row -->
+<div id="live-row" style="margin-top:6px">
+  <div style="font-size:11px;color:var(--muted);padding:4px 8px;letter-spacing:.05em">LIVE WALLET (Real money)</div>
+  <div style="display:flex;gap:10px;flex-wrap:wrap">
+    <div class="kpi-card" style="border-color:#f0883e44">
+      <div class="kpi-label" style="color:#f0883e">Live Balance</div>
+      <div class="kpi-value neu" id="live-bankroll">—</div>
+      <div class="kpi-sub">Start: <span id="live-start">—</span></div>
+    </div>
+    <div class="kpi-card" style="border-color:#f0883e44">
+      <div class="kpi-label" style="color:#f0883e">Live P&amp;L</div>
+      <div class="kpi-value neu" id="live-pnl-kpi">—</div>
+      <div class="kpi-sub" id="live-return-kpi">—</div>
+    </div>
+    <div class="kpi-card" style="border-color:#f0883e44">
+      <div class="kpi-label" style="color:#f0883e">Live Win Rate</div>
+      <div class="kpi-value neu" id="live-winrate-kpi">—</div>
+      <div class="kpi-sub" id="live-resolved-kpi">— resolved</div>
+    </div>
+    <div class="kpi-card" style="border-color:#f0883e44">
+      <div class="kpi-label" style="color:#f0883e">Live Trades</div>
+      <div class="kpi-value neu" id="live-trades-kpi">—</div>
+      <div class="kpi-sub" id="live-active-kpi">— active</div>
+    </div>
+  </div>
+</div>
+
+<!-- Paper Wallet Row -->
+<div id="paper-row" style="margin-top:6px">
+  <div style="font-size:11px;color:var(--muted);padding:4px 8px;letter-spacing:.05em">PAPER WALLET ($100)</div>
+  <div style="display:flex;gap:10px;flex-wrap:wrap">
+    <div class="kpi-card" style="border-color:#58a6ff33">
+      <div class="kpi-label" style="color:#58a6ff">Paper Balance</div>
+      <div class="kpi-value neu" id="paper-bankroll">—</div>
+      <div class="kpi-sub">Start: <span id="paper-start">—</span></div>
+    </div>
+    <div class="kpi-card" style="border-color:#58a6ff33">
+      <div class="kpi-label" style="color:#58a6ff">Paper P&amp;L</div>
+      <div class="kpi-value neu" id="paper-pnl">—</div>
+      <div class="kpi-sub" id="paper-return">—</div>
+    </div>
+    <div class="kpi-card" style="border-color:#58a6ff33">
+      <div class="kpi-label" style="color:#58a6ff">Paper Win Rate</div>
+      <div class="kpi-value neu" id="paper-winrate">—</div>
+      <div class="kpi-sub" id="paper-resolved">— resolved</div>
+    </div>
+    <div class="kpi-card" style="border-color:#58a6ff33">
+      <div class="kpi-label" style="color:#58a6ff">Paper Trades</div>
+      <div class="kpi-value neu" id="paper-trades">—</div>
+      <div class="kpi-sub" id="paper-active">— active</div>
+    </div>
+  </div>
+</div>
+
 <!-- Tabs -->
 <div id="tab-nav">
   <button class="tab-btn active" onclick="switchTab('overview')">Overview</button>
   <button class="tab-btn" onclick="switchTab('signals')">Signals</button>
   <button class="tab-btn" onclick="switchTab('positions')">Positions</button>
+  <button class="tab-btn" onclick="switchTab('analysis')">Analysis</button>
   <button class="tab-btn" onclick="switchTab('logs')">Logs</button>
   <button class="tab-btn" onclick="switchTab('debug')">Debug</button>
 </div>
 
 <!-- Overview -->
 <div id="tab-overview" class="tab-panel active">
-  <div id="chart-wrap">
-    <div class="card-title">Cumulative P&amp;L</div>
-    <div style="position:relative;height:260px">
-      <canvas id="pnl-chart"></canvas>
+  <!-- Time range -->
+  <div class="time-range-bar">
+    <span style="color:var(--muted);font-size:12px">Range:</span>
+    <button class="tr-btn" onclick="setTimeRange('1h')">1H</button>
+    <button class="tr-btn" onclick="setTimeRange('4h')">4H</button>
+    <button class="tr-btn" onclick="setTimeRange('12h')">12H</button>
+    <button class="tr-btn" onclick="setTimeRange('24h')">24H</button>
+    <button class="tr-btn" onclick="setTimeRange('3d')">3D</button>
+    <button class="tr-btn active" onclick="setTimeRange('all')">ALL</button>
+  </div>
+  <!-- Row 1: Portfolio + Win/Loss -->
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+    <div class="chart-block">
+      <div class="card-title">Portfolio Value <span style="color:#c792ea;font-size:11px">(Paper)</span></div>
+      <div style="position:relative;height:148px"><canvas id="paper-portfolio-chart"></canvas></div>
     </div>
+    <div class="chart-block">
+      <div class="card-title">Wins &amp; Losses <span id="wl-range-label" style="color:#6e7681;font-size:11px">(per hour)</span></div>
+      <div style="position:relative;height:148px"><canvas id="winloss-chart"></canvas></div>
+    </div>
+  </div>
+  <!-- Row 2: Paper P&L + Win Rate -->
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+    <div class="chart-block">
+      <div class="card-title">Paper P&amp;L <span style="color:#79c0ff;font-size:11px">(cumulative)</span></div>
+      <div style="position:relative;height:135px"><canvas id="paper-pnl-chart"></canvas></div>
+    </div>
+    <div class="chart-block">
+      <div class="card-title">Win Rate <span style="color:#3dd68c;font-size:11px">(all-time cumulative)</span></div>
+      <div style="position:relative;height:135px"><canvas id="winrate-chart"></canvas></div>
+    </div>
+  </div>
+  <!-- Row 3: Rolling Win Rate -->
+  <div class="chart-block" style="margin-bottom:10px">
+    <div class="card-title">Rolling Win Rate <span style="color:#e3b341;font-size:11px">(20-trade window)</span></div>
+    <div style="position:relative;height:125px"><canvas id="rolling-winrate-chart"></canvas></div>
+  </div>
+  <!-- Row 4: Live Portfolio + Live Win/Loss -->
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+    <div class="chart-block">
+      <div class="card-title">Live Portfolio <span style="color:#f0883e;font-size:11px">(Real wallet, all-time)</span></div>
+      <div style="position:relative;height:148px"><canvas id="live-portfolio-chart"></canvas></div>
+    </div>
+    <div class="chart-block">
+      <div class="card-title">Live Wins &amp; Losses <span style="color:#6e7681;font-size:11px">(per hour)</span></div>
+      <div style="position:relative;height:148px"><canvas id="live-winloss-chart"></canvas></div>
+    </div>
+  </div>
+  <!-- Row 5: Live P&L + Live Win Rate -->
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+    <div class="chart-block">
+      <div class="card-title">Live P&amp;L <span style="color:#f0883e;font-size:11px">(cumulative real trades)</span></div>
+      <div style="position:relative;height:135px"><canvas id="live-pnl-chart"></canvas></div>
+    </div>
+    <div class="chart-block">
+      <div class="card-title">Live Win Rate <span style="color:#ffa657;font-size:11px">(cumulative)</span></div>
+      <div style="position:relative;height:135px"><canvas id="live-winrate-chart"></canvas></div>
+    </div>
+  </div>
+  <!-- Legacy real P&L (hidden, kept for compat) -->
+  <div id="chart-wrap" style="display:none">
+    <canvas id="pnl-chart"></canvas>
   </div>
   <div class="two-col">
     <div class="card">
@@ -301,6 +420,95 @@
       </thead>
       <tbody id="positions-body"><tr><td colspan="11" class="empty">Loading…</td></tr></tbody>
     </table>
+  </div>
+</div>
+
+<!-- Analysis -->
+<div id="tab-analysis" class="tab-panel">
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+    <span id="analysis-summary" style="color:var(--muted);font-size:12px">Loading…</span>
+    <span id="analysis-enriched" style="color:var(--muted);font-size:12px"></span>
+    <button class="btn" onclick="loadAnalysis()">Refresh</button>
+  </div>
+
+  <!-- Row 1: Strategy + Symbol + Regime -->
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:10px">
+    <div class="card">
+      <div class="card-title">By Strategy</div>
+      <table><thead><tr><th>Strategy</th><th>N</th><th>Win%</th><th>P&amp;L</th></tr></thead>
+        <tbody id="an-strategy-body"></tbody></table>
+    </div>
+    <div class="card">
+      <div class="card-title">By Symbol</div>
+      <table><thead><tr><th>Symbol</th><th>N</th><th>Win%</th><th>P&amp;L</th></tr></thead>
+        <tbody id="an-symbol-body"></tbody></table>
+    </div>
+    <div class="card">
+      <div class="card-title">By Regime</div>
+      <table><thead><tr><th>Regime</th><th>N</th><th>Win%</th><th>P&amp;L</th></tr></thead>
+        <tbody id="an-regime-body"></tbody></table>
+    </div>
+  </div>
+  <!-- Row 2: Confidence + T_remaining + pct_move -->
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:10px">
+    <div class="card">
+      <div class="card-title">By Confidence</div>
+      <table><thead><tr><th>Conf</th><th>N</th><th>Win%</th><th>P&amp;L</th></tr></thead>
+        <tbody id="an-conf-body"></tbody></table>
+    </div>
+    <div class="card">
+      <div class="card-title">By T_remaining at Entry</div>
+      <table><thead><tr><th>T_rem</th><th>N</th><th>Win%</th><th>P&amp;L</th></tr></thead>
+        <tbody id="an-trem-body"></tbody></table>
+    </div>
+    <div class="card">
+      <div class="card-title">By pct_move at Entry</div>
+      <table><thead><tr><th>pct_move</th><th>N</th><th>Win%</th><th>P&amp;L</th></tr></thead>
+        <tbody id="an-pctmove-body"></tbody></table>
+    </div>
+  </div>
+
+  <!-- Charts row -->
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+    <div class="chart-block">
+      <div class="card-title">Win Rate by EV bucket</div>
+      <div style="position:relative;height:160px"><canvas id="an-ev-chart"></canvas></div>
+    </div>
+    <div class="chart-block">
+      <div class="card-title">P&amp;L by Hour of Day (UTC)</div>
+      <div style="position:relative;height:160px"><canvas id="an-hour-chart"></canvas></div>
+    </div>
+  </div>
+
+  <!-- Trade table -->
+  <div class="card">
+    <div class="card-title">Trade History <span id="an-table-note" style="color:var(--muted);font-size:11px">(last 500, newest first)</span></div>
+    <div class="filter-bar" style="margin-bottom:8px">
+      <input id="an-search" type="text" placeholder="Search market…" oninput="renderAnalysisTrades()" style="width:200px">
+      <span class="filter-label">Outcome:</span>
+      <select id="an-outcome" onchange="renderAnalysisTrades()">
+        <option value="">All</option><option value="won">Won</option><option value="lost">Lost</option>
+      </select>
+      <span class="filter-label">Strategy:</span>
+      <select id="an-strategy-filter" onchange="renderAnalysisTrades()"><option value="">All</option></select>
+      <span class="filter-label">Symbol:</span>
+      <select id="an-symbol-filter" onchange="renderAnalysisTrades()"><option value="">All</option></select>
+    </div>
+    <div class="tbl-wrap" style="max-height:420px;overflow-y:auto">
+      <table>
+        <thead>
+          <tr>
+            <th>#</th><th>Time</th><th>Market</th><th>Sym</th><th>Side</th>
+            <th>Entry</th><th>EV</th><th>Conf</th><th>ModelP</th>
+            <th>T_rem</th><th>Elapsed</th><th>Hold</th>
+            <th>pct_move</th><th>crypto$</th><th>vol/min</th>
+            <th>BM</th><th>OFI</th><th>MOM</th><th>MC</th>
+            <th>Regime</th><th>Strategy</th><th>Outcome</th><th>P&amp;L</th>
+          </tr>
+        </thead>
+        <tbody id="an-trades-body"></tbody>
+      </table>
+    </div>
   </div>
 </div>
 
@@ -368,7 +576,212 @@ const S = {
   evtFilter: '',
   countdown: 5,
   currentTab: 'overview',
+  timeRange: 'all',
+  paperPnlData: null,
+  pnlData: null,
 };
+
+// ── Crosshair sync ─────────────────────────────────────────────────────────
+var _tsCharts = []; // [{chart, getTs}]
+var _syncRAF  = null;
+
+var _crosshairPlugin = {
+  id: 'crosshairPlugin',
+  afterDraw: function(chart) {
+    if (chart._crosshairX == null) return;
+    var ctx  = chart.ctx;
+    var area = chart.chartArea;
+    ctx.save();
+    ctx.beginPath();
+    ctx.setLineDash([4, 4]);
+    ctx.strokeStyle = 'rgba(200,200,200,0.35)';
+    ctx.lineWidth = 1;
+    ctx.moveTo(chart._crosshairX, area.top);
+    ctx.lineTo(chart._crosshairX, area.bottom);
+    ctx.stroke();
+    ctx.restore();
+  }
+};
+
+function _getNearestIdx(chart, x) {
+  var meta = chart.getDatasetMeta(0);
+  if (!meta || !meta.data || !meta.data.length) return -1;
+  var best = -1, bestDist = Infinity;
+  meta.data.forEach(function(pt, i) {
+    var d = Math.abs(pt.x - x);
+    if (d < bestDist) { bestDist = d; best = i; }
+  });
+  return best;
+}
+
+function _findClosestTsIdx(tsArr, targetMs) {
+  if (!tsArr || !tsArr.length) return -1;
+  var best = -1, bestDiff = Infinity;
+  for (var i = 0; i < tsArr.length; i++) {
+    var diff = Math.abs(tsArr[i] - targetMs);
+    if (diff < bestDiff) { bestDiff = diff; best = i; }
+  }
+  return best;
+}
+
+function _doSync(sourceChart, targetMs, srcX, srcIdx) {
+  _tsCharts.forEach(function(entry) {
+    var c = entry.chart;
+    var tsMs = entry.tsMs;
+    if (!c || !c.canvas || !tsMs.length) return;
+    if (c === sourceChart) {
+      c._crosshairX = srcX;
+      var meta0 = c.getDatasetMeta(0);
+      if (meta0 && meta0.data[srcIdx]) {
+        try { c.tooltip.setActiveElements([{datasetIndex:0, index:srcIdx}], meta0.data[srcIdx]); }
+        catch(e) {}
+      }
+      c.update('none');
+      return;
+    }
+    var idx = _findClosestTsIdx(tsMs, targetMs);
+    if (idx < 0) { c._crosshairX = null; c.update('none'); return; }
+    var meta = c.getDatasetMeta(0);
+    if (meta && meta.data && meta.data[idx]) {
+      c._crosshairX = meta.data[idx].x;
+      try { c.tooltip.setActiveElements([{datasetIndex:0, index:idx}], meta.data[idx]); }
+      catch(e) {}
+    } else {
+      c._crosshairX = null;
+    }
+    c.update('none');
+  });
+}
+
+function _clearSync() {
+  _tsCharts.forEach(function(entry) {
+    var c = entry.chart;
+    c._crosshairX = null;
+    try { c.tooltip.setActiveElements([], {x:0,y:0}); } catch(e) {}
+    c.update('none');
+  });
+}
+
+function _registerSyncChart(chart, tsMsGetter) {
+  // tsMs is an array of epoch-ms values (updated lazily)
+  var entry = { chart: chart, tsMs: [] };
+  entry.getTs = tsMsGetter;  // stored so we can refresh on data update
+  _tsCharts.push(entry);
+  chart._crosshairX = null;
+
+  chart.canvas.addEventListener('mousemove', function(e) {
+    var rect = chart.canvas.getBoundingClientRect();
+    var x = e.clientX - rect.left;
+    var area = chart.chartArea;
+    if (!area || x < area.left || x > area.right) { _clearSync(); return; }
+    var idx = _getNearestIdx(chart, x);
+    if (idx < 0) return;
+    // Refresh tsMs from getter
+    entry.tsMs = tsMsGetter();
+    var targetMs = entry.tsMs[idx];
+    if (targetMs == null) return;
+    if (_syncRAF) cancelAnimationFrame(_syncRAF);
+    _syncRAF = requestAnimationFrame(function() {
+      // Refresh all other charts' tsMs too
+      _tsCharts.forEach(function(en) { en.tsMs = en.getTs(); });
+      _doSync(chart, targetMs, x, idx);
+      _syncRAF = null;
+    });
+  });
+
+  chart.canvas.addEventListener('mouseleave', function() {
+    if (_syncRAF) { cancelAnimationFrame(_syncRAF); _syncRAF = null; }
+    _clearSync();
+  });
+}
+
+// ── Time range filter ─────────────────────────────────────────────────────
+var RANGE_HOURS = { '1h':1, '4h':4, '12h':12, '24h':24, '3d':72, 'all':0 };
+
+function _filterSeries(series, hours) {
+  if (!hours || !series || !series.length) return series;
+  var cutoff = Date.now() - hours * 3600000;
+  return series.filter(function(p) { return p.ts ? new Date(p.ts).getTime() >= cutoff : true; });
+}
+
+function _filterHourBuckets(buckets, hours) {
+  if (!hours || !buckets || !buckets.length) return buckets;
+  var cutoff = Date.now() - hours * 3600000;
+  return buckets.filter(function(b) {
+    // b.hour: "2026-03-26T09" — treat as UTC
+    return new Date(b.hour + ':00:00Z').getTime() >= cutoff;
+  });
+}
+
+function setTimeRange(range) {
+  S.timeRange = range;
+  document.querySelectorAll('.tr-btn').forEach(function(b) {
+    b.classList.toggle('active', b.textContent.trim().toUpperCase() === range.toUpperCase());
+  });
+  // Update Win/Loss label
+  var wlLabel = document.getElementById('wl-range-label');
+  if (wlLabel) wlLabel.textContent = range === 'all' ? '(per hour — all time)' : '(per hour — ' + range + ')';
+  reRenderCharts();
+}
+
+function reRenderCharts() {
+  var hours = RANGE_HOURS[S.timeRange] || 0;
+  if (S.paperPnlData) {
+    var pd = S.paperPnlData;
+    var filtered = hours ? {
+      series:           _filterSeries(pd.series, hours),
+      portfolio_series: _filterSeries(pd.portfolio_series, hours),
+      hour_buckets:     _filterHourBuckets(pd.hour_buckets, hours),
+    } : pd;
+    updatePaperChart(filtered);
+    updatePaperPortfolioChart(filtered);
+    updateWinLossChart(filtered);
+    updateRollingWinRateChart(filtered);
+    // Win rate always uses full all-time data to match KPI
+    updateWinRateChart(S.paperPnlData);
+  }
+  if (S.pnlData) {
+    var pf = hours ? { series: _filterSeries(S.pnlData.series, hours) } : S.pnlData;
+    updateChart(pf);
+  }
+  if (S.livePnlData) {
+    var ld = S.livePnlData;
+    var lFiltered = hours ? {
+      series:           _filterSeries(ld.series, hours),
+      portfolio_series: _filterSeries(ld.portfolio_series, hours),
+      hour_buckets:     _filterHourBuckets(ld.hour_buckets, hours),
+    } : ld;
+    updateLivePnlChart(lFiltered);
+    updateLivePortfolioChart(lFiltered);
+    updateLiveWinLossChart(lFiltered);
+    // Win rate always full data to match real bankroll
+    updateLiveWinRateChart(S.livePnlData);
+    // Update live wallet row (all-time stats from log)
+    var lWins   = ld.wins    || 0;
+    var lLosses = ld.losses  || 0;
+    var lTotal  = ld.resolved || (lWins + lLosses);
+    var lWr     = ld.win_rate;
+    var lStart  = ld.starting_bankroll || 0;
+    var lCur    = ld.current_bankroll  || 0;
+    var lPnl    = lCur - lStart;
+
+    var lPnlEl = document.getElementById('live-pnl-kpi');
+    lPnlEl.textContent = (lPnl >= 0 ? '+' : '') + money(lPnl);
+    lPnlEl.className   = 'kpi-value ' + (lPnl > 0 ? 'pos' : lPnl < 0 ? 'neg' : 'neu');
+
+    var lRetPct = lStart > 0 ? (lPnl / lStart * 100) : 0;
+    document.getElementById('live-return-kpi').textContent = (lRetPct >= 0 ? '+' : '') + pct(lRetPct);
+
+    var lWrEl = document.getElementById('live-winrate-kpi');
+    lWrEl.textContent = lWr != null ? pct(lWr * 100) : '—';
+    lWrEl.className   = 'kpi-value ' + (lWr != null && lWr > 0.5 ? 'pos' : lWr != null && lWr < 0.5 ? 'neg' : 'neu');
+
+    document.getElementById('live-resolved-kpi').textContent = lTotal + ' resolved (' + lWins + 'W / ' + lLosses + 'L)';
+
+    // Also update top Win Rate card sub-label
+    document.getElementById('kpi-resolved').textContent = lTotal + ' trades (' + lWins + 'W / ' + lLosses + 'L)';
+  }
+}
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 function fmt(n, d) { d = d == null ? 2 : d; return n == null ? '—' : Number(n).toFixed(d); }
@@ -409,21 +822,29 @@ function sigCell(val) {
 }
 
 // ── KPI ────────────────────────────────────────────────────────────────────
-function updateKPI(m) {
+function updateKPI(m, kpi) {
   if (!m) return;
-  var portEl = document.getElementById('kpi-portfolio');
-  portEl.textContent = money(m.portfolio_value);
-  portEl.className = 'kpi-value ' + (m.total_pnl > 0 ? 'pos' : m.total_pnl < 0 ? 'neg' : 'neu');
+  // portfolio = cash + positions
+  var portfolio = (m.clob_cash || 0) + (m.position_value || 0);
+  var todayStart = (kpi && kpi.actual_starting) || m.starting_bankroll;
+  var todayPnl   = portfolio - todayStart;
 
-  document.getElementById('kpi-start').textContent = money(m.starting_bankroll);
+  var portEl = document.getElementById('kpi-portfolio');
+  portEl.textContent = money(portfolio);
+  portEl.className = 'kpi-value ' + (todayPnl > 0 ? 'pos' : todayPnl < 0 ? 'neg' : 'neu');
+
+  document.getElementById('kpi-cash').textContent    = money(m.clob_cash || 0);
+  document.getElementById('kpi-pos-val').textContent = money(m.position_value || 0);
+  document.getElementById('kpi-start').textContent   = money(todayStart);
 
   var pnlEl = document.getElementById('kpi-pnl');
-  pnlEl.textContent = (m.total_pnl >= 0 ? '+' : '') + money(m.total_pnl);
-  pnlEl.className = 'kpi-value ' + (m.total_pnl > 0 ? 'pos' : m.total_pnl < 0 ? 'neg' : 'neu');
+  pnlEl.textContent = (todayPnl >= 0 ? '+' : '') + money(todayPnl);
+  pnlEl.className = 'kpi-value ' + (todayPnl > 0 ? 'pos' : todayPnl < 0 ? 'neg' : 'neu');
 
+  var todayRetPct = todayStart > 0 ? (todayPnl / todayStart * 100) : 0;
   var retEl = document.getElementById('kpi-return');
-  retEl.textContent = (m.return_pct >= 0 ? '+' : '') + pct(m.return_pct);
-  retEl.className = 'kpi-value ' + (m.return_pct > 0 ? 'pos' : m.return_pct < 0 ? 'neg' : 'neu');
+  retEl.textContent = (todayRetPct >= 0 ? '+' : '') + pct(todayRetPct);
+  retEl.className = 'kpi-value ' + (todayRetPct > 0 ? 'pos' : todayRetPct < 0 ? 'neg' : 'neu');
 
   var ddEl = document.getElementById('kpi-drawdown');
   ddEl.textContent = pct(m.drawdown_pct);
@@ -438,63 +859,413 @@ function updateKPI(m) {
   document.getElementById('kpi-signals').textContent = m.total_signals || 0;
   document.getElementById('kpi-active').textContent = (m.active_positions || 0) + ' active positions';
 
+  // Update mode badge from bot state (paper_mode field) — more reliable than SSH service check
+  var badge = document.getElementById('mode-badge');
+  var modeBtn = document.getElementById('mode-btn');
+  if (m.live_mode) {
+    badge.className = 'badge badge-live'; badge.textContent = 'LIVE';
+    if (modeBtn) modeBtn.textContent = 'Switch to Paper';
+  } else {
+    badge.className = 'badge badge-paper'; badge.textContent = 'PAPER';
+    if (modeBtn) modeBtn.textContent = 'Switch to Live';
+  }
+
   if (m.last_scan_ago_sec != null) {
     var s = m.last_scan_ago_sec;
     document.getElementById('scan-ago').textContent = 'scan ' + (s < 60 ? s + 's ago' : Math.round(s/60) + 'm ago');
   }
   document.getElementById('conn-dot').className = 'ok';
+
+  // Paper wallet
+  var pb = m.paper_bankroll != null ? m.paper_bankroll : 100;
+  var pp = m.paper_pnl != null ? m.paper_pnl : 0;
+  var pbEl = document.getElementById('paper-bankroll');
+  pbEl.textContent = money(pb);
+  pbEl.className = 'kpi-value ' + (pp > 0 ? 'pos' : pp < 0 ? 'neg' : 'neu');
+  var ppEl = document.getElementById('paper-pnl');
+  ppEl.textContent = (pp >= 0 ? '+' : '') + money(pp);
+  ppEl.className = 'kpi-value ' + (pp > 0 ? 'pos' : pp < 0 ? 'neg' : 'neu');
+  document.getElementById('paper-start').textContent = money(m.paper_starting || 100);
+  document.getElementById('paper-return').textContent = (m.paper_return_pct >= 0 ? '+' : '') + pct(m.paper_return_pct || 0);
+  var pwr = m.paper_win_rate;
+  var pwrEl = document.getElementById('paper-winrate');
+  pwrEl.textContent = pwr != null ? pct(pwr * 100) : '—';
+  pwrEl.className = 'kpi-value ' + (pwr != null && pwr > 0.5 ? 'pos' : pwr != null && pwr < 0.5 ? 'neg' : 'neu');
+  document.getElementById('paper-resolved').textContent = (m.paper_resolved || 0) + ' resolved';
+  document.getElementById('paper-trades').textContent = m.paper_trades || 0;
+  document.getElementById('paper-active').textContent = (m.paper_active || 0) + ' active';
+
+  // Live wallet — balance and active positions from metrics
+  var lb  = m.current_bankroll != null ? m.current_bankroll : 0;
+  var lbEl = document.getElementById('live-bankroll');
+  lbEl.textContent  = money(lb);
+  lbEl.className    = 'kpi-value neu';
+  document.getElementById('live-start').textContent = money(m.starting_bankroll || lb);
+  document.getElementById('live-active-kpi').textContent = (m.active_positions || 0) + ' active';
+  document.getElementById('live-trades-kpi').textContent = m.total_trades || 0;
 }
 
-// ── Chart ──────────────────────────────────────────────────────────────────
-function initChart() {
-  var ctx = document.getElementById('pnl-chart').getContext('2d');
-  S.chart = new Chart(ctx, {
+// ── Chart helpers ──────────────────────────────────────────────────────────
+var CHART_OPTS = {
+  responsive: true, maintainAspectRatio: false,
+  animation: false,
+  plugins: {
+    legend: { display: false },
+    tooltip: { callbacks: { label: function(c) { return ' $' + c.parsed.y.toFixed(2); } } }
+  },
+  scales: {
+    x: { ticks: { color: '#adbac7', maxTicksLimit: 7, font: {size:10} }, grid: { color: '#30363d' } },
+    y: { ticks: { color: '#adbac7', font: {size:10}, callback: function(v) { return '$' + Number(v).toFixed(1); } }, grid: { color: '#30363d' } },
+  }
+};
+function _tsLabel(ts) {
+  try { return new Date(ts).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'}); }
+  catch(e) { return String(ts).slice(11,16); }
+}
+function _makeLine(ctx, color, bgAlpha, extraPlugins) {
+  var bg = color.replace(')', ',' + bgAlpha + ')').replace('rgb(', 'rgba(');
+  return new Chart(ctx, {
     type: 'line',
-    data: { labels: [], datasets: [{
-      label: 'P&L', data: [],
-      borderColor: 'var(--green)',
-      backgroundColor: 'rgba(63,185,80,.08)',
-      borderWidth: 1.5, pointRadius: 0, tension: 0.3, fill: true,
-    }]},
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: false }, tooltip: { callbacks: { label: function(c) { return ' $' + c.parsed.y.toFixed(2); } } } },
-      scales: {
-        x: { ticks: { color: '#8b949e', maxTicksLimit: 8 }, grid: { color: '#21262d' } },
-        y: { ticks: { color: '#8b949e', callback: function(v) { return '$' + Number(v).toFixed(2); } }, grid: { color: '#21262d' } },
-      },
-    }
+    data: { labels: [], datasets: [{ data: [], borderColor: color,
+      backgroundColor: bg, borderWidth: 2, pointRadius: 0, tension: 0.25, fill: true }] },
+    options: JSON.parse(JSON.stringify(CHART_OPTS)),
+    plugins: extraPlugins || []
   });
 }
 
+// ── Real P&L chart ─────────────────────────────────────────────────────────
+function initChart() {
+  S.chartRawTsMs = [];
+  S.chart = _makeLine(document.getElementById('pnl-chart').getContext('2d'), '#f0883e', 0.12, [_crosshairPlugin]);
+  _registerSyncChart(S.chart, function() { return S.chartRawTsMs; });
+}
 function updateChart(data) {
-  if (!data || !data.series) return;
+  if (!data || !data.series || !S.chart) return;
   var series = data.series;
-  var labels = series.map(function(p) {
-    try { return new Date(p.ts).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'}); }
-    catch(e) { return String(p.ts).slice(11,16); }
-  });
+  S.chartRawTsMs = series.map(function(p) { return p.ts ? new Date(p.ts).getTime() : null; });
+  var labels = series.map(function(p) { return _tsLabel(p.ts); });
   var values = series.map(function(p) { return p.pnl_cumulative; });
-  var allPos = values.every(function(v) { return v >= 0; });
-  var allNeg = values.every(function(v) { return v <= 0; });
-  var color   = allPos ? 'var(--green)' : allNeg ? 'var(--red)' : 'var(--blue)';
-  var bgColor = allPos ? 'rgba(63,185,80,.08)' : allNeg ? 'rgba(248,81,73,.08)' : 'rgba(88,166,255,.08)';
+  var last = values.length ? values[values.length-1] : 0;
+  var color = last >= 0 ? '#3dd68c' : '#f85149';
+  var bg    = last >= 0 ? 0.15 : 0.12;
   S.chart.data.labels = labels;
   S.chart.data.datasets[0].data = values;
   S.chart.data.datasets[0].borderColor = color;
-  S.chart.data.datasets[0].backgroundColor = bgColor;
+  S.chart.data.datasets[0].backgroundColor = color.replace('rgb(','rgba(').replace(')',','+bg+')') || color;
   S.chart.update('none');
+}
+
+// ── Paper Portfolio chart (bankroll over time) ─────────────────────────────
+function initPaperPortfolioChart() {
+  S.portfolioChartRawTsMs = [];
+  S.portfolioChart = _makeLine(document.getElementById('paper-portfolio-chart').getContext('2d'), '#c792ea', 0.12, [_crosshairPlugin]);
+  S.portfolioChart.options.scales.y.ticks.callback = function(v) { return '$' + Number(v).toFixed(0); };
+  S.portfolioChart.options.plugins.tooltip.callbacks.label = function(c) {
+    var suffix = c.label === 'Now' ? ' (live)' : '';
+    return ' $' + c.parsed.y.toFixed(2) + suffix;
+  };
+  _registerSyncChart(S.portfolioChart, function() { return S.portfolioChartRawTsMs; });
+}
+function updatePaperPortfolioChart(data) {
+  if (!data || !data.portfolio_series || !S.portfolioChart) return;
+  // Copy and append live current balance so chart endpoint matches KPI
+  var series = data.portfolio_series.slice();
+  if (S.metrics && S.metrics.paper_bankroll != null) {
+    series.push({ ts: new Date().toISOString(), portfolio: S.metrics.paper_bankroll, live: true });
+  }
+  S.portfolioChartRawTsMs = series.map(function(p) { return p.ts ? new Date(p.ts).getTime() : null; });
+  var labels = series.map(function(p) { return p.live ? 'Now' : _tsLabel(p.ts); });
+  var values = series.map(function(p) { return p.portfolio; });
+  S.portfolioChart.data.labels = labels;
+  S.portfolioChart.data.datasets[0].data = values;
+  S.portfolioChart.update('none');
+}
+
+// ── Win/Loss bar chart (per hour) ─────────────────────────────────────────
+function initWinLossChart() {
+  var ctx = document.getElementById('winloss-chart').getContext('2d');
+  S.winlossChart = new Chart(ctx, {
+    type: 'bar',
+    data: { labels: [], datasets: [
+      { label: 'Wins',   data: [], backgroundColor: '#3dd68c', borderRadius: 2 },
+      { label: 'Losses', data: [], backgroundColor: '#f85149', borderRadius: 2 },
+    ]},
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: false,
+      plugins: { legend: { display: true, labels: { color: '#adbac7', font: {size:10}, boxWidth: 12 } },
+                 tooltip: { callbacks: { label: function(c) { return ' ' + c.dataset.label + ': ' + c.parsed.y; } } } },
+      scales: {
+        x: { stacked: false, ticks: { color: '#adbac7', maxTicksLimit: 8, font: {size:9} }, grid: { color: '#30363d' } },
+        y: { stacked: false, ticks: { color: '#adbac7', font: {size:10}, stepSize: 1 }, grid: { color: '#30363d' } },
+      }
+    }
+  });
+}
+function updateWinLossChart(data) {
+  if (!data || !data.hour_buckets || !S.winlossChart) return;
+  var buckets = data.hour_buckets;
+  // Show last 24 buckets max
+  if (buckets.length > 24) buckets = buckets.slice(-24);
+  var labels = buckets.map(function(b) {
+    var h = b.hour.replace('T', ' ').slice(-5); // "HH" or "HH:MM"
+    return h + 'h';
+  });
+  S.winlossChart.data.labels = labels;
+  S.winlossChart.data.datasets[0].data = buckets.map(function(b) { return b.wins; });
+  S.winlossChart.data.datasets[1].data = buckets.map(function(b) { return b.losses; });
+  S.winlossChart.update('none');
+}
+
+// ── Paper P&L chart (cumulative) ──────────────────────────────────────────
+function initPaperChart() {
+  S.paperChartRawTsMs = [];
+  S.paperChart = _makeLine(document.getElementById('paper-pnl-chart').getContext('2d'), '#79c0ff', 0.12, [_crosshairPlugin]);
+  _registerSyncChart(S.paperChart, function() { return S.paperChartRawTsMs; });
+}
+function updatePaperChart(data) {
+  if (!data || !data.series || !S.paperChart) return;
+  // Copy and append live point: paper_bankroll - $100 (all-time start) includes active stake deduction
+  var series = data.series.slice();
+  if (S.metrics && S.metrics.paper_bankroll != null) {
+    series.push({ ts: new Date().toISOString(), pnl: S.metrics.paper_bankroll - 100, live: true });
+  }
+  S.paperChartRawTsMs = series.map(function(p) { return p.ts ? new Date(p.ts).getTime() : null; });
+  var labels = series.map(function(p) { return p.live ? 'Now' : _tsLabel(p.ts); });
+  var values = series.map(function(p) { return p.pnl; });
+  var last = values.length ? values[values.length-1] : 0;
+  var color = last >= 0 ? '#3dd68c' : '#f85149';
+  S.paperChart.data.labels = labels;
+  S.paperChart.data.datasets[0].data = values;
+  S.paperChart.data.datasets[0].borderColor = color;
+  S.paperChart.update('none');
+}
+
+// ── Rolling Win Rate chart (20-trade window) ───────────────────────────────
+function initRollingWinRateChart() {
+  S.rollingChartRawTsMs = [];
+  var ctx = document.getElementById('rolling-winrate-chart').getContext('2d');
+  var opts = JSON.parse(JSON.stringify(CHART_OPTS));
+  opts.scales.y.min = 0;
+  opts.scales.y.max = 1;
+  opts.scales.y.ticks.callback = function(v) { return (v * 100).toFixed(0) + '%'; };
+  opts.plugins.tooltip.callbacks.label = function(c) { return ' ' + (c.parsed.y * 100).toFixed(1) + '%'; };
+  S.rollingChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: [],
+      datasets: [
+        { data: [], borderColor: '#e3b341', backgroundColor: 'rgba(227,179,65,0.1)',
+          borderWidth: 2, pointRadius: 0, tension: 0.25, fill: true },
+        { data: [], borderColor: 'rgba(200,200,200,0.25)', borderDash: [5,4],
+          borderWidth: 1, pointRadius: 0, fill: false }
+      ]
+    },
+    options: opts,
+    plugins: [_crosshairPlugin]
+  });
+  _registerSyncChart(S.rollingChart, function() { return S.rollingChartRawTsMs; });
+}
+function updateRollingWinRateChart(data) {
+  if (!data || !data.series || !S.rollingChart) return;
+  var WINDOW = 20;
+  var series = data.series; // [{ts, pnl}, ...]
+  var rolling = [];
+  for (var i = 0; i < series.length; i++) {
+    var start = Math.max(0, i - WINDOW + 1);
+    var wins = 0;
+    for (var j = start; j <= i; j++) { if (series[j].pnl > 0) wins++; }
+    rolling.push({ ts: series[i].ts, wr: wins / (i - start + 1) });
+  }
+  S.rollingChartRawTsMs = rolling.map(function(p) { return p.ts ? new Date(p.ts).getTime() : null; });
+  var labels = rolling.map(function(p) { return _tsLabel(p.ts); });
+  var values = rolling.map(function(p) { return p.wr; });
+  var last = values.length ? values[values.length-1] : 0.5;
+  var color = last >= 0.5 ? '#e3b341' : '#f85149';
+  S.rollingChart.data.labels = labels;
+  S.rollingChart.data.datasets[0].data = values;
+  S.rollingChart.data.datasets[0].borderColor = color;
+  S.rollingChart.data.datasets[0].backgroundColor = last >= 0.5 ? 'rgba(227,179,65,0.1)' : 'rgba(248,81,73,0.1)';
+  S.rollingChart.data.datasets[1].data = labels.map(function() { return 0.5; });
+  S.rollingChart.update('none');
+}
+
+// ── Cumulative Win Rate chart ─────────────────────────────────────────────
+function initWinRateChart() {
+  S.winRateChartRawTsMs = [];
+  var ctx = document.getElementById('winrate-chart').getContext('2d');
+  var opts = JSON.parse(JSON.stringify(CHART_OPTS));
+  opts.scales.y.min = 0;
+  opts.scales.y.max = 1;
+  opts.scales.y.ticks.callback = function(v) { return (v * 100).toFixed(0) + '%'; };
+  opts.plugins.tooltip.callbacks.label = function(c) { return ' ' + (c.parsed.y * 100).toFixed(1) + '%'; };
+  S.winRateChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: [],
+      datasets: [
+        { data: [], borderColor: '#3dd68c', backgroundColor: 'rgba(63,185,80,0.1)',
+          borderWidth: 2, pointRadius: 0, tension: 0.3, fill: true },
+        { data: [], borderColor: 'rgba(200,200,200,0.25)', borderDash: [5,4],
+          borderWidth: 1, pointRadius: 0, fill: false }
+      ]
+    },
+    options: opts,
+    plugins: [_crosshairPlugin]
+  });
+  _registerSyncChart(S.winRateChart, function() { return S.winRateChartRawTsMs; });
+}
+function updateWinRateChart(data) {
+  if (!data || !data.series || !S.winRateChart) return;
+  var series = data.series;
+  var wins = 0, result = [];
+  for (var i = 0; i < series.length; i++) {
+    if (series[i].pnl > 0) wins++;
+    result.push({ ts: series[i].ts, wr: wins / (i + 1) });
+  }
+  S.winRateChartRawTsMs = result.map(function(p) { return p.ts ? new Date(p.ts).getTime() : null; });
+  var labels = result.map(function(p) { return _tsLabel(p.ts); });
+  var values = result.map(function(p) { return p.wr; });
+  var last   = values.length ? values[values.length - 1] : 0.5;
+  var color  = last >= 0.5 ? '#3dd68c' : '#f85149';
+  S.winRateChart.data.labels = labels;
+  S.winRateChart.data.datasets[0].data = values;
+  S.winRateChart.data.datasets[0].borderColor = color;
+  S.winRateChart.data.datasets[0].backgroundColor = last >= 0.5 ? 'rgba(63,185,80,0.1)' : 'rgba(248,81,73,0.1)';
+  S.winRateChart.data.datasets[1].data = labels.map(function() { return 0.5; });
+  S.winRateChart.update('none');
+}
+
+// ── Live Portfolio chart ───────────────────────────────────────────────────
+function initLivePortfolioChart() {
+  S.livePortfolioChartRawTsMs = [];
+  S.livePortfolioChart = _makeLine(document.getElementById('live-portfolio-chart').getContext('2d'), '#f0883e', 0.12, [_crosshairPlugin]);
+  S.livePortfolioChart.options.scales.y.ticks.callback = function(v) { return '$' + Number(v).toFixed(0); };
+  S.livePortfolioChart.options.plugins.tooltip.callbacks.label = function(c) {
+    var suffix = c.label === 'Now' ? ' (live)' : '';
+    return ' $' + c.parsed.y.toFixed(2) + suffix;
+  };
+  _registerSyncChart(S.livePortfolioChart, function() { return S.livePortfolioChartRawTsMs; });
+}
+function updateLivePortfolioChart(data) {
+  if (!data || !S.livePortfolioChart) return;
+  var series = (data.portfolio_series || []).slice();
+  if (S.metrics && S.metrics.current_bankroll != null) {
+    series.push({ ts: new Date().toISOString(), portfolio: S.metrics.current_bankroll, live: true });
+  }
+  S.livePortfolioChartRawTsMs = series.map(function(p) { return p.ts ? new Date(p.ts).getTime() : null; });
+  var labels = series.map(function(p) { return p.live ? 'Now' : _tsLabel(p.ts); });
+  var values = series.map(function(p) { return p.portfolio; });
+  S.livePortfolioChart.data.labels = labels;
+  S.livePortfolioChart.data.datasets[0].data = values;
+  S.livePortfolioChart.update('none');
+}
+
+// ── Live Win/Loss bar chart ────────────────────────────────────────────────
+function initLiveWinLossChart() {
+  var ctx = document.getElementById('live-winloss-chart').getContext('2d');
+  S.liveWinlossChart = new Chart(ctx, {
+    type: 'bar',
+    data: { labels: [], datasets: [
+      { label: 'Wins',   data: [], backgroundColor: '#3dd68c', borderRadius: 2 },
+      { label: 'Losses', data: [], backgroundColor: '#f85149', borderRadius: 2 },
+    ]},
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: false,
+      plugins: { legend: { display: true, labels: { color: '#adbac7', font: {size:10}, boxWidth: 12 } },
+                 tooltip: { callbacks: { label: function(c) { return ' ' + c.dataset.label + ': ' + c.parsed.y; } } } },
+      scales: {
+        x: { stacked: false, ticks: { color: '#adbac7', maxTicksLimit: 8, font: {size:9} }, grid: { color: '#30363d' } },
+        y: { stacked: false, ticks: { color: '#adbac7', font: {size:10}, stepSize: 1 }, grid: { color: '#30363d' } },
+      }
+    }
+  });
+}
+function updateLiveWinLossChart(data) {
+  if (!data || !data.hour_buckets || !S.liveWinlossChart) return;
+  var buckets = data.hour_buckets.slice(-24);
+  var labels = buckets.map(function(b) {
+    var h = b.hour.replace('T', ' ').slice(-5);
+    return h + 'h';
+  });
+  S.liveWinlossChart.data.labels = labels;
+  S.liveWinlossChart.data.datasets[0].data = buckets.map(function(b) { return b.wins; });
+  S.liveWinlossChart.data.datasets[1].data = buckets.map(function(b) { return b.losses; });
+  S.liveWinlossChart.update('none');
+}
+
+// ── Live P&L chart (cumulative) ───────────────────────────────────────────
+function initLivePnlChart() {
+  S.livePnlChartRawTsMs = [];
+  S.livePnlChart = _makeLine(document.getElementById('live-pnl-chart').getContext('2d'), '#f0883e', 0.12, [_crosshairPlugin]);
+  _registerSyncChart(S.livePnlChart, function() { return S.livePnlChartRawTsMs; });
+}
+function updateLivePnlChart(data) {
+  if (!data || !data.series || !S.livePnlChart) return;
+  var series = data.series;
+  S.livePnlChartRawTsMs = series.map(function(p) { return p.ts ? new Date(p.ts).getTime() : null; });
+  var labels = series.map(function(p) { return _tsLabel(p.ts); });
+  var values = series.map(function(p) { return p.pnl; });
+  var last  = values.length ? values[values.length - 1] : 0;
+  var color = last >= 0 ? '#3dd68c' : '#f85149';
+  S.livePnlChart.data.labels = labels;
+  S.livePnlChart.data.datasets[0].data = values;
+  S.livePnlChart.data.datasets[0].borderColor = color;
+  S.livePnlChart.update('none');
+}
+
+// ── Live Win Rate chart (cumulative) ──────────────────────────────────────
+function initLiveWinRateChart() {
+  S.liveWinRateChartRawTsMs = [];
+  var ctx = document.getElementById('live-winrate-chart').getContext('2d');
+  var opts = JSON.parse(JSON.stringify(CHART_OPTS));
+  opts.scales.y.min = 0; opts.scales.y.max = 1;
+  opts.scales.y.ticks.callback = function(v) { return (v * 100).toFixed(0) + '%'; };
+  opts.plugins.tooltip.callbacks.label = function(c) { return ' ' + (c.parsed.y * 100).toFixed(1) + '%'; };
+  S.liveWinRateChart = new Chart(ctx, {
+    type: 'line',
+    data: { labels: [], datasets: [
+      { data: [], borderColor: '#ffa657', backgroundColor: 'rgba(255,166,87,0.1)',
+        borderWidth: 2, pointRadius: 0, tension: 0.3, fill: true },
+      { data: [], borderColor: 'rgba(200,200,200,0.25)', borderDash: [5,4],
+        borderWidth: 1, pointRadius: 0, fill: false }
+    ]},
+    options: opts, plugins: [_crosshairPlugin]
+  });
+  _registerSyncChart(S.liveWinRateChart, function() { return S.liveWinRateChartRawTsMs; });
+}
+function updateLiveWinRateChart(data) {
+  if (!data || !data.series || !S.liveWinRateChart) return;
+  var series = data.series;
+  var wins = 0, result = [];
+  for (var i = 0; i < series.length; i++) {
+    if (series[i].pnl > 0) wins++;
+    result.push({ ts: series[i].ts, wr: wins / (i + 1) });
+  }
+  S.liveWinRateChartRawTsMs = result.map(function(p) { return p.ts ? new Date(p.ts).getTime() : null; });
+  var labels = result.map(function(p) { return _tsLabel(p.ts); });
+  var values = result.map(function(p) { return p.wr; });
+  var last   = values.length ? values[values.length - 1] : 0.5;
+  var color  = last >= 0.5 ? '#ffa657' : '#f85149';
+  S.liveWinRateChart.data.labels = labels;
+  S.liveWinRateChart.data.datasets[0].data = values;
+  S.liveWinRateChart.data.datasets[0].borderColor = color;
+  S.liveWinRateChart.data.datasets[0].backgroundColor = last >= 0.5 ? 'rgba(255,166,87,0.1)' : 'rgba(248,81,73,0.1)';
+  S.liveWinRateChart.data.datasets[1].data = labels.map(function() { return 0.5; });
+  S.liveWinRateChart.update('none');
 }
 
 // ── Stats ──────────────────────────────────────────────────────────────────
 function renderStats(kpi, metrics) {
   var b = document.getElementById('stats-body');
   if (!kpi) { b.innerHTML = '<tr><td colspan="2" class="empty">No data</td></tr>'; return; }
+  var realPnl = kpi.actual_pnl != null ? kpi.actual_pnl : null;
+  var realPnlHtml = realPnl != null
+    ? '<span class="' + (realPnl > 0 ? 'pos' : 'neg') + '">' + (realPnl >= 0 ? '+' : '') + money(realPnl) + '</span>'
+    : '—';
   var rows = [
+    ['Real P&amp;L', realPnlHtml],
     ['Total Resolved', kpi.total_resolved],
     ['Wins / Losses', (kpi.total_wins||0) + ' / ' + (kpi.total_losses||0)],
-    ['Total Won $', '<span class="pos">' + money(kpi.total_won_usd) + '</span>'],
-    ['Total Lost $', '<span class="neg">' + money(kpi.total_lost_usd) + '</span>'],
     ['Avg Win', '<span class="pos">' + money(kpi.avg_win_usd) + '</span>'],
     ['Avg Loss', '<span class="neg">' + money(kpi.avg_loss_usd) + '</span>'],
     ['Avg EV', fmt(kpi.avg_ev, 4)],
@@ -751,6 +1522,179 @@ function syntaxHL(json) {
     });
 }
 
+// ── Analysis tab ───────────────────────────────────────────────────────────
+var S_analysis = null;
+var S_anEvChart = null, S_anHourChart = null;
+
+function loadAnalysis() {
+  document.getElementById('analysis-summary').textContent = 'Loading…';
+  apiFetch('/api/analysis/paper').then(function(data) {
+    S_analysis = data;
+    var wr = data.win_rate != null ? (data.win_rate * 100).toFixed(1) + '%' : '—';
+    document.getElementById('analysis-summary').textContent =
+      data.total + ' trades  |  ' + data.wins + 'W / ' + data.losses + 'L  |  WR ' + wr +
+      '  |  P&L ' + (data.total_pnl >= 0 ? '+' : '') + '$' + data.total_pnl.toFixed(2);
+    var enr = data.enriched || 0;
+    document.getElementById('analysis-enriched').textContent =
+      enr + '/' + data.total + ' with signal context' +
+      (enr < data.total ? ' (' + (data.total - enr) + ' historical — joined from log)' : '');
+
+    _renderBreakdown('an-strategy-body', data.by_strategy, 'strategy');
+    _renderBreakdown('an-regime-body',   data.by_regime,   'regime');
+    _renderBreakdown('an-conf-body',     data.by_confidence, 'bucket');
+    _renderBreakdown('an-symbol-body',   data.by_symbol,   'symbol');
+    _renderBreakdown('an-trem-body',     data.by_t_remaining, 'bucket');
+    _renderBreakdown('an-pctmove-body',  data.by_pct_move, 'bucket');
+    _renderEVChart(data.by_ev);
+    _renderHourChart(data.by_hour);
+
+    // Populate strategy filter
+    var sel = document.getElementById('an-strategy-filter');
+    var cur = sel.value;
+    sel.innerHTML = '<option value="">All</option>' + (data.by_strategy || []).map(function(r) {
+      return '<option value="' + esc(r.strategy) + '"' + (r.strategy===cur?' selected':'') + '>' + esc(r.strategy) + '</option>';
+    }).join('');
+
+    // Populate symbol filter
+    var symSel = document.getElementById('an-symbol-filter');
+    var curSym = symSel.value;
+    symSel.innerHTML = '<option value="">All</option>' + (data.by_symbol || []).map(function(r) {
+      return '<option value="' + esc(r.symbol||'') + '"' + ((r.symbol||'')===curSym?' selected':'') + '>' + esc(r.symbol||'?') + '</option>';
+    }).join('');
+
+    renderAnalysisTrades();
+  }).catch(function(e) {
+    document.getElementById('analysis-summary').textContent = 'Error: ' + e.message;
+  });
+}
+
+function _wr_html(wr) {
+  if (wr == null) return '<span style="color:var(--muted)">—</span>';
+  var p = (wr * 100).toFixed(1);
+  return '<span class="' + (wr > 0.5 ? 'pos' : wr < 0.5 ? 'neg' : 'neu') + '">' + p + '%</span>';
+}
+
+function _renderBreakdown(tbodyId, rows, labelKey) {
+  var b = document.getElementById(tbodyId);
+  if (!rows || !rows.length) { b.innerHTML = '<tr><td colspan="4" class="empty">No data</td></tr>'; return; }
+  b.innerHTML = rows.map(function(r) {
+    var pnl = r.pnl != null ? ((r.pnl >= 0 ? '+' : '') + '$' + r.pnl.toFixed(2)) : '—';
+    var pnlCls = r.pnl > 0 ? 'pos' : r.pnl < 0 ? 'neg' : 'neu';
+    return '<tr>' +
+      '<td style="max-width:120px;overflow:hidden;text-overflow:ellipsis" title="' + esc(r[labelKey]||'') + '">' + esc((r[labelKey]||'—').slice(0,20)) + '</td>' +
+      '<td>' + (r.count||0) + '</td>' +
+      '<td>' + _wr_html(r.win_rate) + '</td>' +
+      '<td class="' + pnlCls + '">' + pnl + '</td>' +
+    '</tr>';
+  }).join('');
+}
+
+function _renderEVChart(byEv) {
+  var ctx = document.getElementById('an-ev-chart');
+  if (!ctx) return;
+  if (S_anEvChart) { S_anEvChart.destroy(); }
+  var labels = byEv.map(function(b) { return b.bucket; });
+  var wrVals  = byEv.map(function(b) { return b.win_rate != null ? +(b.win_rate*100).toFixed(1) : 0; });
+  var counts  = byEv.map(function(b) { return b.count; });
+  var colors  = wrVals.map(function(v) { return v >= 50 ? '#3dd68c' : '#f85149'; });
+  S_anEvChart = new Chart(ctx.getContext('2d'), {
+    type: 'bar',
+    data: { labels: labels, datasets: [
+      { label: 'Win%', data: wrVals, backgroundColor: colors, borderRadius: 3, yAxisID: 'y' },
+      { label: 'Trades', data: counts, type: 'line', borderColor: '#58a6ff', borderWidth: 1.5,
+        pointRadius: 2, fill: false, yAxisID: 'y2' },
+    ]},
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: false,
+      plugins: { legend: { display: true, labels: { color: '#adbac7', font:{size:10}, boxWidth:10 } },
+        tooltip: { callbacks: { label: function(c) {
+          return c.dataset.label === 'Win%' ? ' ' + c.parsed.y + '%' : ' ' + c.parsed.y + ' trades';
+        }}}},
+      scales: {
+        x: { ticks: { color:'#adbac7', font:{size:9}, maxRotation:45 }, grid:{color:'#30363d'} },
+        y: { min:0, max:100, ticks:{ color:'#adbac7', font:{size:9}, callback:function(v){return v+'%';} }, grid:{color:'#30363d'} },
+        y2: { position:'right', ticks:{ color:'#58a6ff', font:{size:9} }, grid:{display:false} },
+      }
+    }
+  });
+}
+
+function _renderHourChart(byHour) {
+  var ctx = document.getElementById('an-hour-chart');
+  if (!ctx) return;
+  if (S_anHourChart) { S_anHourChart.destroy(); }
+  var labels = byHour.map(function(b) { return b.hour + 'h'; });
+  var pnlVals = byHour.map(function(b) { return b.pnl || 0; });
+  var colors  = pnlVals.map(function(v) { return v >= 0 ? 'rgba(63,185,80,0.7)' : 'rgba(248,81,73,0.7)'; });
+  S_anHourChart = new Chart(ctx.getContext('2d'), {
+    type: 'bar',
+    data: { labels: labels, datasets: [{
+      label: 'P&L', data: pnlVals, backgroundColor: colors, borderRadius: 2
+    }]},
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: false,
+      plugins: { legend:{display:false}, tooltip:{ callbacks:{ label:function(c){
+        return ' $' + c.parsed.y.toFixed(2);
+      }}}},
+      scales: {
+        x: { ticks:{color:'#adbac7',font:{size:9}}, grid:{color:'#30363d'} },
+        y: { ticks:{color:'#adbac7',font:{size:9},callback:function(v){return '$'+v.toFixed(0);}}, grid:{color:'#30363d'} }
+      }
+    }
+  });
+}
+
+function renderAnalysisTrades() {
+  if (!S_analysis || !S_analysis.trades) return;
+  var search   = (document.getElementById('an-search').value || '').toLowerCase();
+  var outcome  = document.getElementById('an-outcome').value;
+  var strategy = document.getElementById('an-strategy-filter').value;
+  var symbol   = document.getElementById('an-symbol-filter').value;
+  var data = S_analysis.trades.slice().reverse(); // newest first
+  if (search)   data = data.filter(function(t){ return (t.question||'').toLowerCase().indexOf(search)>=0; });
+  if (outcome)  data = data.filter(function(t){ return outcome === 'won' ? t.won : !t.won; });
+  if (strategy) data = data.filter(function(t){ return (t.strategy||'') === strategy; });
+  if (symbol)   data = data.filter(function(t){ return (t.symbol||'') === symbol; });
+  var b = document.getElementById('an-trades-body');
+  if (!data.length) { b.innerHTML = '<tr><td colspan="23" class="empty">No trades match filter</td></tr>'; return; }
+  b.innerHTML = data.slice(0,300).map(function(t) {
+    var sigs = t.signals || {};
+    var outcomeHtml = t.won ? '<span class="badge-won">WON</span>' : '<span class="badge-lost">LOST</span>';
+    var pnlHtml = '<span class="' + (t.pnl > 0 ? 'pos' : 'neg') + '">' +
+      (t.pnl > 0 ? '+' : '') + fmt(t.pnl, 4) + '</span>';
+    var q = t.question || '';
+    var pmv = t.pct_move != null ? (t.pct_move * 100).toFixed(3) + '%' : '—';
+    var vpm = t.vol_per_min != null ? t.vol_per_min.toFixed(4) : '—';
+    var cp  = t.crypto_price != null ? '$' + t.crypto_price.toFixed(2) : '—';
+    return '<tr>' +
+      '<td style="color:var(--muted);font-size:11px">' + (t.trade_number||'') + '</td>' +
+      '<td style="white-space:nowrap;font-size:11px">' + fmtTime(t.ts) + '</td>' +
+      '<td title="' + esc(q) + '" style="max-width:160px;overflow:hidden;text-overflow:ellipsis">' +
+        esc(q.length>30?q.slice(0,30)+'…':q) + '</td>' +
+      '<td style="color:var(--blue)">' + esc(t.symbol||'—') + '</td>' +
+      '<td>' + esc(t.side||'') + '</td>' +
+      '<td>' + fmt(t.entry_price,3) + '</td>' +
+      '<td>' + fmt(t.ev,4) + '</td>' +
+      '<td>' + fmt(t.confidence,3) + '</td>' +
+      '<td>' + fmt(t.model_p,3) + '</td>' +
+      '<td>' + fmt(t.T_remaining,1) + '</td>' +
+      '<td style="color:var(--muted)">' + (t.elapsed_min != null ? t.elapsed_min.toFixed(1) : '—') + '</td>' +
+      '<td style="color:var(--muted)">' + (t.duration_held_min != null ? t.duration_held_min.toFixed(1) : '—') + '</td>' +
+      '<td>' + pmv + '</td>' +
+      '<td>' + cp + '</td>' +
+      '<td>' + vpm + '</td>' +
+      '<td>' + sigCell(sigs.bm) + '</td>' +
+      '<td>' + sigCell(sigs.ofi) + '</td>' +
+      '<td>' + sigCell(sigs.mom) + '</td>' +
+      '<td>' + sigCell(sigs.mc) + '</td>' +
+      '<td>' + esc(t.regime||'—') + '</td>' +
+      '<td>' + esc(t.strategy||'—') + '</td>' +
+      '<td>' + outcomeHtml + '</td>' +
+      '<td>' + pnlHtml + '</td>' +
+    '</tr>';
+  }).join('');
+}
+
 // ── API fetch ──────────────────────────────────────────────────────────────
 function apiFetch(path, params) {
   var url = API + path;
@@ -763,7 +1707,7 @@ function apiFetch(path, params) {
 
 // ── Refresh ────────────────────────────────────────────────────────────────
 function renderAll() {
-  updateKPI(S.metrics);
+  updateKPI(S.metrics, S.kpi);
   renderStats(S.kpi, S.metrics);
   renderScans(S.scans);
   renderSignals();
@@ -780,6 +1724,8 @@ function refresh() {
     apiFetch('/api/debug/scans', {n:5}),
     apiFetch('/api/debug/events', {n:200}),
     apiFetch('/api/chart/pnl'),
+    apiFetch('/api/chart/paper-pnl'),
+    apiFetch('/api/chart/live-pnl'),
   ]).then(function(res) {
     S.metrics      = res[0];
     S.kpi          = res[1];
@@ -798,7 +1744,10 @@ function refresh() {
     }).join('');
 
     renderAll();
-    updateChart(res[6]);
+    S.pnlData      = res[6];
+    S.paperPnlData = res[7];
+    S.livePnlData  = res[8];
+    reRenderCharts();
     document.getElementById('updated').textContent = 'updated ' + new Date().toLocaleTimeString();
     document.getElementById('conn-dot').className = 'ok';
   }).catch(function(e) {
@@ -818,12 +1767,13 @@ function refresh() {
 // ── Tab switch — instant, no fetch ─────────────────────────────────────────
 function switchTab(name) {
   S.currentTab = name;
-  var tabs = ['overview','signals','positions','logs','debug'];
+  var tabs = ['overview','signals','positions','analysis','logs','debug'];
   document.querySelectorAll('.tab-btn').forEach(function(b, i) {
     b.classList.toggle('active', tabs[i] === name);
   });
   document.querySelectorAll('.tab-panel').forEach(function(p) { p.classList.remove('active'); });
   document.getElementById('tab-' + name).classList.add('active');
+  if (name === 'analysis' && !S_analysis) loadAnalysis();
 }
 
 // ── Bot controls ───────────────────────────────────────────────────────────
@@ -868,6 +1818,15 @@ function startRefreshLoop() {
 // ── Init ───────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', function() {
   initChart();
+  initPaperChart();
+  initPaperPortfolioChart();
+  initWinLossChart();
+  initRollingWinRateChart();
+  initWinRateChart();
+  initLivePortfolioChart();
+  initLiveWinLossChart();
+  initLivePnlChart();
+  initLiveWinRateChart();
   startLogPolling();
   refresh();
   startRefreshLoop();

@@ -112,6 +112,22 @@ async def api_chart_pnl():
         raise HTTPException(502, str(e))
 
 
+@app.get("/api/chart/paper-pnl")
+async def api_chart_paper_pnl():
+    try:
+        return await remote_get("/chart/paper-pnl")
+    except Exception as e:
+        raise HTTPException(502, str(e))
+
+
+@app.get("/api/chart/live-pnl")
+async def api_chart_live_pnl():
+    try:
+        return await remote_get("/chart/live-pnl")
+    except Exception as e:
+        raise HTTPException(502, str(e))
+
+
 @app.get("/api/kpi")
 async def api_kpi():
     try:
@@ -152,6 +168,14 @@ async def api_debug_scans(n: int = Query(default=20)):
         raise HTTPException(502, str(e))
 
 
+@app.get("/api/analysis/paper")
+async def api_analysis_paper():
+    try:
+        return await remote_get("/analysis/paper")
+    except Exception as e:
+        raise HTTPException(502, str(e))
+
+
 @app.get("/api/logs/tail")
 async def api_logs_tail(n: int = Query(default=200)):
     try:
@@ -162,16 +186,16 @@ async def api_logs_tail(n: int = Query(default=200)):
 
 @app.post("/bot/set-mode")
 async def bot_set_mode(mode: str = "paper"):
-    """Switch bot between live and paper mode by editing the systemd service file."""
-    svc = "/etc/systemd/system/polymarket-bot.service"
+    """Switch bot between live and paper mode via remote API (updates bot_state.json)."""
     try:
-        # Always strip --live first, then re-add if needed
-        ssh_run(f"sed -i 's/ --live//' {svc}")
-        if mode == "live":
-            ssh_run(f"sed -i 's|polymarket_bot.py|polymarket_bot.py --live|' {svc}")
-        ssh_run("systemctl daemon-reload")
-        code, out, err = ssh_run(f"systemctl restart {BOT_SVC}")
-        return {"ok": code == 0, "mode": mode}
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.post(
+                f"{REMOTE_API}/bot/set-mode",
+                params={"mode": mode},
+                headers={"Authorization": f"Bearer {API_TOKEN}"},
+            )
+            resp.raise_for_status()
+            return resp.json()
     except Exception as e:
         raise HTTPException(502, str(e))
 
